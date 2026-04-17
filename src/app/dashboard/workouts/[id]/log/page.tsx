@@ -6,6 +6,7 @@ import { useRouter, useParams } from 'next/navigation'
 
 type Exercise = {
   id: string
+  exercise_id: string
   name: string
   sets: number
   reps: number
@@ -39,42 +40,41 @@ export default function WorkoutLogPage() {
 
   useEffect(() => {
     async function loadWorkout() {
-        const { data } = await supabaseClient.auth.getUser()
-        const user = data?.user
+    const { data: { user } } = await supabaseClient.auth.getUser()
         
         if (!user) {
           router.push('/login')
           return
         }
 
-      const { data: workoutData } = await supabaseClient
+      const workoutResponse = await supabaseClient
         .from('workouts')
         .select('*')
         .eq('id', params.id)
         .eq('user_id', user.id)
         .single()
 
-      if (!workoutData) {
+      if (!workoutResponse.data) {
         router.push('/dashboard/workouts')
         return
       }
 
-      setWorkoutName(workoutData.name)
+      setWorkoutName(workoutResponse.data.name)
 
-      const { data: exercisesData } = await supabaseClient
+      const exercisesResponse = await supabaseClient
         .from('workout_exercises')
-        .select('*')
+        .select('id, exercise_id, name, sets, reps, rest_seconds, order_index')
         .eq('workout_id', params.id)
         .order('order_index', { ascending: true })
 
-      if (exercisesData) {
-        setExercises(exercisesData)
+      if (exercisesResponse.data) {
+        setExercises(exercisesResponse.data as Exercise[])
         
         const logs: SetLog[] = []
-        exercisesData.forEach((ex) => {
+        exercisesResponse.data.forEach((ex: Exercise) => {
           for (let i = 1; i <= ex.sets; i++) {
             logs.push({
-              exerciseId: ex.id,
+              exerciseId: ex.exercise_id,
               setNumber: i,
               reps: ex.reps,
               weight: 0,
@@ -113,14 +113,14 @@ export default function WorkoutLogPage() {
 
   const currentExercise = exercises[currentExerciseIndex]
   const currentExerciseSets = setLogs.filter(
-    (log) => log.exerciseId === currentExercise?.id
+    (log) => log.exerciseId === currentExercise?.exercise_id
   )
   const currentSetLog = currentExerciseSets?.[currentSet - 1]
 
   const updateSetLog = (field: 'reps' | 'weight', value: number) => {
     setSetLogs(
       setLogs.map((log) =>
-        log.exerciseId === currentExercise.id && log.setNumber === currentSet
+        log.exerciseId === currentExercise.exercise_id && log.setNumber === currentSet
           ? { ...log, [field]: value }
           : log
       )
@@ -130,7 +130,7 @@ export default function WorkoutLogPage() {
   const completeSet = () => {
     setSetLogs(
       setLogs.map((log) =>
-        log.exerciseId === currentExercise.id && log.setNumber === currentSet
+        log.exerciseId === currentExercise.exercise_id && log.setNumber === currentSet
           ? { ...log, completed: true }
           : log
       )
@@ -162,8 +162,7 @@ export default function WorkoutLogPage() {
 
     setSaving(true)
 
-    const { data } = await supabaseClient.auth.getUser()
-    const user = data?.user
+    const { data: { user } } = await supabaseClient.auth.getUser()
     
     if (!user) {
       router.push('/login')
@@ -173,7 +172,7 @@ export default function WorkoutLogPage() {
     const endTime = new Date()
     const durationMinutes = Math.round((endTime.getTime() - startTime.getTime()) / 60000)
 
-    const { data: session, error: sessionError } = await supabaseClient
+    const sessionResponse = await supabaseClient
       .from('workout_sessions')
       .insert({
         user_id: user.id,
@@ -185,8 +184,8 @@ export default function WorkoutLogPage() {
       .select()
       .single()
 
-    if (sessionError) {
-      console.error('Error saving session:', sessionError)
+    if (sessionResponse.error || !sessionResponse.data) {
+      console.error('Error saving session:', sessionResponse.error)
       alert('Failed to save workout')
       setSaving(false)
       return
@@ -195,7 +194,7 @@ export default function WorkoutLogPage() {
     const completedSets = setLogs
       .filter((log) => log.completed)
       .map((log) => ({
-        session_id: session.id,
+        session_id: sessionResponse.data.id,
         exercise_id: log.exerciseId,
         set_number: log.setNumber,
         reps: log.reps,
@@ -212,8 +211,7 @@ export default function WorkoutLogPage() {
       }
     }
 
-    router.push('/dashboard')
-    router.refresh()
+    router.push('/dashboard/history')
   }
 
   if (loading) {
@@ -245,7 +243,7 @@ export default function WorkoutLogPage() {
 
   const completedSets = currentExerciseSets.filter((s) => s.completed).length
   const totalSets = currentExercise.sets
-  const progress = ((currentExerciseIndex * 100) + ((completedSets / totalSets) * 100)) / exercises.length
+  const progress = ((currentExerciseIndex * 100) + ((completedSets / totalSets) * 100)) / exercises.length 
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -387,7 +385,7 @@ export default function WorkoutLogPage() {
           <h3 className="text-lg font-bold text-gray-900 mb-4">Workout Plan</h3>
           <div className="space-y-2">
             {exercises.map((exercise, index) => {
-              const exerciseSets = setLogs.filter((log) => log.exerciseId === exercise.id)
+              const exerciseSets = setLogs.filter((log) => log.exerciseId === exercise.exercise_id)
               const completedCount = exerciseSets.filter((s) => s.completed).length
               const isActive = index === currentExerciseIndex
 

@@ -13,12 +13,28 @@ type Profile = {
   workout_frequency: string | null
 }
 
+type WorkoutSession = {
+  id: string
+  workout_id: string
+  completed_at: string
+  duration_minutes: number
+  workouts: {
+    name: string
+  }[] | null
+}
+
 export default function DashboardPage() {
   const router = useRouter()
   const pathname = usePathname()
   const supabase = createClient()
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [recentSessions, setRecentSessions] = useState<WorkoutSession[]>([])
+  const [stats, setStats] = useState({
+    thisWeek: 0,
+    total: 0,
+    streak: 0
+  })
 
   useEffect(() => {
     async function loadProfile() {
@@ -30,23 +46,91 @@ export default function DashboardPage() {
         return
       }
 
-      const { data: profileData, error } = await supabase
+      const profileResponse = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
         .single()
 
-      if (error) {
-        console.error('Failed to fetch profile:', error)
+      if (profileResponse.error) {
+        console.error('Failed to fetch profile:', profileResponse.error)
       }
 
-      setProfile(profileData ?? null)
+      setProfile(profileResponse.data ?? null)
+
+      // Fetch recent workout sessions
+      const sessionsResponse = await supabase
+        .from('workout_sessions')
+        .select(`
+          id,
+          workout_id,
+          completed_at,
+          duration_minutes,
+          workouts (
+            name
+          )
+        `)
+        .eq('user_id', user.id)
+        .order('completed_at', { ascending: false })
+        .limit(5)
+
+      if (sessionsResponse.data) {
+        setRecentSessions(sessionsResponse.data as WorkoutSession[])
+      }
+
+      // Calculate stats
+      const allSessionsResponse = await supabase
+        .from('workout_sessions')
+        .select('completed_at')
+        .eq('user_id', user.id)
+        .order('completed_at', { ascending: false })
+
+      if (allSessionsResponse.data) {
+        // Total workouts
+        const total = allSessionsResponse.data.length
+
+        // Workouts this week
+        const now = new Date()
+        const startOfWeek = new Date(now)
+        startOfWeek.setDate(now.getDate() - now.getDay())
+        startOfWeek.setHours(0, 0, 0, 0)
+        
+        const thisWeek = allSessionsResponse.data.filter((session: { completed_at: string }) => 
+          new Date(session.completed_at) >= startOfWeek
+        ).length
+
+        // Calculate streak
+        let streak = 0
+        const today = new Date()
+        today.setHours(0, 0, 0, 0)
+        
+        const dates = allSessionsResponse.data.map((s: { completed_at: string }) => {
+          const d = new Date(s.completed_at)
+          d.setHours(0, 0, 0, 0)
+          return d.getTime()
+        })
+        
+        const uniqueDates = [...new Set(dates)].sort((a: number, b: number) => b - a)
+        
+        let currentDate = today.getTime()
+        for (const date of uniqueDates) {
+          if (date === currentDate || date === currentDate - 86400000) {
+            streak++
+            currentDate = date - 86400000
+          } else {
+            break
+          }
+        }
+
+        setStats({ thisWeek, total, streak })
+      }
+
       setLoading(false)
 
       // Redirect to onboarding if not completed
-      const hasFitness = !!profileData?.fitness_level
+      const hasFitness = !!profileResponse.data?.fitness_level
       let hasGoals = false
-      const goalsRaw = profileData?.goals
+      const goalsRaw = profileResponse.data?.goals
 
       if (Array.isArray(goalsRaw)) {
         hasGoals = (goalsRaw as unknown[]).length > 0
@@ -61,8 +145,6 @@ export default function DashboardPage() {
         hasGoals = !!goalsRaw
       }
 
-      // Only auto-redirect to onboarding when the user is actively on the dashboard
-      // This prevents client-side redirects when the user intentionally visits /onboarding
       if (pathname?.startsWith('/dashboard') && (!hasFitness || !hasGoals)) {
         router.push('/onboarding')
       }
@@ -84,7 +166,6 @@ export default function DashboardPage() {
     maintain: 'Stay Healthy 🎯',
   }
 
-  // Derive a display label for the user's primary goal (handles array, JSON string, or plain string)
   const goalDisplay = (() => {
     const goalsRaw = profile?.goals
     if (!goalsRaw) return 'Not set'
@@ -103,6 +184,25 @@ export default function DashboardPage() {
     }
     return 'Not set'
   })()
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    const now = new Date()
+    const diffMs = now.getTime() - date.getTime()
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
+    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+
+    if (diffHours < 24) {
+      if (diffHours < 1) return 'Just now'
+      return `${diffHours}h ago`
+    } else if (diffDays === 1) {
+      return 'Yesterday'
+    } else if (diffDays < 7) {
+      return `${diffDays} days ago`
+    } else {
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    }
+  }
 
   if (loading) {
     return (
@@ -128,6 +228,12 @@ export default function DashboardPage() {
                 className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
               >
                 Workouts
+              </Link>
+              <Link
+                href="/dashboard/history"
+                className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
+              >
+                History
               </Link>
               <Link
                 href="/exercises"
@@ -166,7 +272,7 @@ export default function DashboardPage() {
               <h3 className="text-sm font-medium text-gray-600">Workouts This Week</h3>
               <span className="text-2xl">🔥</span>
             </div>
-            <p className="text-3xl font-bold text-gray-900">0</p>
+            <p className="text-3xl font-bold text-gray-900">{stats.thisWeek}</p>
             <p className="text-sm text-gray-500 mt-1">Goal: {profile?.workout_frequency || '3'}/week</p>
           </div>
 
@@ -175,7 +281,7 @@ export default function DashboardPage() {
               <h3 className="text-sm font-medium text-gray-600">Total Workouts</h3>
               <span className="text-2xl">💪</span>
             </div>
-            <p className="text-3xl font-bold text-gray-900">0</p>
+            <p className="text-3xl font-bold text-gray-900">{stats.total}</p>
             <p className="text-sm text-gray-500 mt-1">Keep it up!</p>
           </div>
 
@@ -184,8 +290,10 @@ export default function DashboardPage() {
               <h3 className="text-sm font-medium text-gray-600">Current Streak</h3>
               <span className="text-2xl">⚡</span>
             </div>
-            <p className="text-3xl font-bold text-gray-900">0 days</p>
-            <p className="text-sm text-gray-500 mt-1">Start your streak!</p>
+            <p className="text-3xl font-bold text-gray-900">{stats.streak} days</p>
+            <p className="text-sm text-gray-500 mt-1">
+              {stats.streak > 0 ? 'Amazing!' : 'Start your streak!'}
+            </p>
           </div>
         </div>
 
@@ -215,17 +323,61 @@ export default function DashboardPage() {
 
         {/* Recent Activity */}
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">Recent Activity</h3>
-          <div className="text-center py-12">
-            <div className="text-6xl mb-4">🏋️</div>
-            <p className="text-gray-500 mb-4">No workouts yet</p>
-            <Link
-              href="/dashboard/workouts/new"
-              className="inline-block px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
-            >
-              Start Your First Workout
-            </Link>
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-gray-900">Recent Activity</h3>
+            {recentSessions.length > 0 && (
+              <Link
+                href="/dashboard/history"
+                className="text-sm font-medium text-blue-600 hover:text-blue-700"
+              >
+                View All
+              </Link>
+            )}
           </div>
+          
+          {recentSessions.length === 0 ? (
+            <div className="text-center py-12">
+              <div className="text-6xl mb-4">🏋️</div>
+              <p className="text-gray-500 mb-4">No workouts yet</p>
+              <Link
+                href="/dashboard/workouts/new"
+                className="inline-block px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+              >
+                Start Your First Workout
+              </Link>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {recentSessions.map((session) => (
+                <div
+                  key={session.id}
+                  className="p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-gray-50 transition-all"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
+                        <span className="text-lg">✓</span>
+                      </div>
+                      <div>
+                <h4 className="font-semibold text-gray-900">
+                {session.workouts?.[0]?.name || 'Workout'}
+                </h4>
+                        <p className="text-sm text-gray-600">
+                          {session.duration_minutes} minutes • {formatDate(session.completed_at)}
+                        </p>
+                      </div>
+                    </div>
+                    <Link
+                      href={`/dashboard/history`}
+                      className="text-sm font-medium text-blue-600 hover:text-blue-700"
+                    >
+                      View Details
+                    </Link>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </main>
     </div>
