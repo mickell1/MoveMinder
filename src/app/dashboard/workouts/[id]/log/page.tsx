@@ -12,6 +12,9 @@ type Exercise = {
   reps: number
   rest_seconds: number
   order_index: number
+  // Joined from the exercises table
+  video_url?: string | null
+  muscle_group?: string | null
 }
 
 type SetLog = {
@@ -22,11 +25,46 @@ type SetLog = {
   completed: boolean
 }
 
+// ─── YouTube helpers ───────────────────────────────────────────────────────────
+// Uses youtube-nocookie.com which has far fewer iframe embedding restrictions
+function getYouTubeVideoId(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    if (parsed.hostname.includes('youtu.be')) return parsed.pathname.slice(1).split('?')[0]
+    if (parsed.pathname.includes('/shorts/')) return parsed.pathname.split('/shorts/')[1].split('/')[0]
+    return parsed.searchParams.get('v')
+  } catch {
+    return null
+  }
+}
+
+function getEmbedUrl(url: string | null | undefined, autoplay = false): string | null {
+  if (!url) return null
+  const id = getYouTubeVideoId(url)
+  if (!id) return null
+  return `https://www.youtube-nocookie.com/embed/${id}?rel=0${autoplay ? '&autoplay=1' : ''}`
+}
+
+function getThumbnail(url: string | null | undefined): string | null {
+  if (!url) return null
+  const id = getYouTubeVideoId(url)
+  return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : null
+}
+
+const muscleGroupEmojis: Record<string, string> = {
+  chest: '💪',
+  back: '🦾',
+  legs: '🦵',
+  shoulders: '🏋️',
+  arms: '💪',
+  core: '🔥',
+}
+
 export default function WorkoutLogPage() {
   const router = useRouter()
   const params = useParams()
   const supabaseClient = createClient()
-  
+
   const [workoutName, setWorkoutName] = useState('')
   const [exercises, setExercises] = useState<Exercise[]>([])
   const [setLogs, setSetLogs] = useState<SetLog[]>([])
@@ -38,14 +76,20 @@ export default function WorkoutLogPage() {
   const [isResting, setIsResting] = useState(false)
   const [startTime] = useState(new Date())
 
+  // Track which exercise index has video expanded.
+  // Storing the index means it's automatically 'closed' when the exercise
+  // changes — no useEffect needed.
+  const [videoOpenForIndex, setVideoOpenForIndex] = useState<number | null>(null)
+  const showVideo = videoOpenForIndex === currentExerciseIndex
+
   useEffect(() => {
     async function loadWorkout() {
-    const { data: { user } } = await supabaseClient.auth.getUser()
-        
-        if (!user) {
-          router.push('/login')
-          return
-        }
+      const { data: { user } } = await supabaseClient.auth.getUser()
+
+      if (!user) {
+        router.push('/login')
+        return
+      }
 
       const workoutResponse = await supabaseClient
         .from('workouts')
@@ -61,17 +105,61 @@ export default function WorkoutLogPage() {
 
       setWorkoutName(workoutResponse.data.name)
 
+      // Fetch workout_exercises joined with exercises so we get video_url + muscle_group
+      // Use exercise_id!inner to explicitly join via the FK column
       const exercisesResponse = await supabaseClient
         .from('workout_exercises')
-        .select('id, exercise_id, name, sets, reps, rest_seconds, order_index')
+        .select(`
+          id,
+          exercise_id,
+          sets,
+          reps,
+          rest_seconds,
+          order_index,
+          exercises!exercise_id (
+            name,
+            video_url,
+            muscle_group
+          )
+        `)
         .eq('workout_id', params.id)
         .order('order_index', { ascending: true })
 
+      if (exercisesResponse.error) {
+        console.error('Error loading exercises:', JSON.stringify(exercisesResponse.error, null, 2))
+      }
+
       if (exercisesResponse.data) {
-        setExercises(exercisesResponse.data as Exercise[])
-        
+        // Flatten the join so the rest of the component works as before
+        type WorkoutExerciseRow = {
+          id: string
+          exercise_id: string
+          sets: number
+          reps: number
+          rest_seconds: number
+          order_index: number
+          exercises: {
+            name: string
+            video_url: string | null
+            muscle_group: string | null
+          } | null
+        }
+        const flat: Exercise[] = (exercisesResponse.data as unknown as WorkoutExerciseRow[]).map((row) => ({
+          id: row.id,
+          exercise_id: row.exercise_id,
+          name: row.exercises?.name ?? 'Unknown',
+          sets: row.sets,
+          reps: row.reps,
+          rest_seconds: row.rest_seconds,
+          order_index: row.order_index,
+          video_url: row.exercises?.video_url ?? null,
+          muscle_group: row.exercises?.muscle_group ?? null,
+        }))
+
+        setExercises(flat)
+
         const logs: SetLog[] = []
-        exercisesResponse.data.forEach((ex: Exercise) => {
+        flat.forEach((ex) => {
           for (let i = 1; i <= ex.sets; i++) {
             logs.push({
               exerciseId: ex.exercise_id,
@@ -90,6 +178,7 @@ export default function WorkoutLogPage() {
 
     loadWorkout()
   }, [params.id, router, supabaseClient])
+
 
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null
@@ -156,14 +245,12 @@ export default function WorkoutLogPage() {
   }
 
   const finishWorkout = async () => {
-    if (!confirm('Are you sure you want to finish this workout?')) {
-      return
-    }
+    if (!confirm('Are you sure you want to finish this workout?')) return
 
     setSaving(true)
 
     const { data: { user } } = await supabaseClient.auth.getUser()
-    
+
     if (!user) {
       router.push('/login')
       return
@@ -207,7 +294,10 @@ export default function WorkoutLogPage() {
         .insert(completedSets)
 
       if (setsError) {
-        console.error('Error saving sets:', setsError)
+        // Log the full error so you can see exactly which column name is wrong
+        console.error('Error saving sets — full error:', JSON.stringify(setsError, null, 2))
+        console.error('Attempted insert payload (first row):', JSON.stringify(completedSets[0], null, 2))
+        // Don't block navigation — session was already saved successfully
       }
     }
 
@@ -243,7 +333,12 @@ export default function WorkoutLogPage() {
 
   const completedSets = currentExerciseSets.filter((s) => s.completed).length
   const totalSets = currentExercise.sets
-  const progress = ((currentExerciseIndex * 100) + ((completedSets / totalSets) * 100)) / exercises.length 
+  const progress =
+    ((currentExerciseIndex * 100) + ((completedSets / totalSets) * 100)) / exercises.length
+
+  const thumbnail = getThumbnail(currentExercise.video_url)
+  const embedUrl = getEmbedUrl(currentExercise.video_url, true)
+  const emoji = muscleGroupEmojis[currentExercise.muscle_group ?? ''] ?? '💪'
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
@@ -266,6 +361,7 @@ export default function WorkoutLogPage() {
         </div>
       </header>
 
+      {/* Progress bar */}
       <div className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
           <div className="flex items-center justify-between mb-2">
@@ -282,6 +378,7 @@ export default function WorkoutLogPage() {
       </div>
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Rest timer */}
         {isResting && (
           <div className="bg-orange-500 text-white rounded-xl shadow-lg p-8 mb-6 text-center animate-pulse">
             <div className="text-6xl font-bold mb-2">{restTimer}s</div>
@@ -295,17 +392,79 @@ export default function WorkoutLogPage() {
           </div>
         )}
 
+        {/* ─── Exercise Media Panel ─────────────────────────────────────────── */}
+        <div className="bg-white rounded-xl shadow-lg overflow-hidden mb-6">
+          {showVideo && embedUrl ? (
+            // Expanded video player
+            <div className="relative">
+              <div className="aspect-video w-full bg-black">
+                <iframe
+                  width="100%"
+                  height="100%"
+                  src={embedUrl}
+                  title={currentExercise.name}
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
+              </div>
+              <button
+                onClick={() => setVideoOpenForIndex(null)}
+                className="absolute top-3 right-3 bg-black bg-opacity-60 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-opacity-80 transition-colors"
+              >
+                ✕ Close video
+              </button>
+            </div>
+          ) : (
+            // Thumbnail / placeholder with overlay button
+            <div className="relative h-52 bg-gray-900 cursor-pointer group" onClick={() => currentExercise.video_url && setVideoOpenForIndex(currentExerciseIndex)}>
+              {thumbnail ? (
+                <img
+                  src={thumbnail}
+                  alt={currentExercise.name}
+                  className="w-full h-full object-cover opacity-75 group-hover:opacity-90 transition-opacity"
+                />
+              ) : (
+                <div className="w-full h-full bg-gradient-to-br from-blue-900 to-indigo-900 flex items-center justify-center">
+                  <span className="text-8xl">{emoji}</span>
+                </div>
+              )}
+
+              {/* Play button overlay — only shown when there's a video */}
+              {currentExercise.video_url && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                  <div className="w-16 h-16 bg-red-600 rounded-full flex items-center justify-center shadow-xl group-hover:scale-110 transition-transform">
+                    <span className="text-white text-2xl ml-1">▶</span>
+                  </div>
+                  <span className="text-white text-sm font-medium bg-black bg-opacity-50 px-3 py-1 rounded-full">
+                    Watch exercise video
+                  </span>
+                </div>
+              )}
+
+              {/* Exercise name overlay */}
+              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black to-transparent p-4">
+                <p className="text-white font-bold text-xl">{currentExercise.name}</p>
+                {currentExercise.muscle_group && (
+                  <p className="text-gray-300 text-sm capitalize">
+                    {emoji} {currentExercise.muscle_group}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+        {/* ──────────────────────────────────────────────────────────────────── */}
+
+        {/* Current set card */}
         <div className="bg-white rounded-xl shadow-lg p-8 mb-6">
           <div className="text-center mb-6">
-            <div className="text-5xl mb-4">💪</div>
-            <h2 className="text-3xl font-bold text-gray-900 mb-2">
-              {currentExercise.name}
-            </h2>
             <p className="text-lg text-gray-600">
               Set {currentSet} of {totalSets}
             </p>
           </div>
 
+          {/* Set progress dots */}
           <div className="flex gap-2 mb-6 justify-center flex-wrap">
             {Array.from({ length: totalSets }).map((_, index) => (
               <div
@@ -370,6 +529,7 @@ export default function WorkoutLogPage() {
           )}
         </div>
 
+        {/* Target info */}
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
           <div className="flex items-center gap-2 text-blue-800 text-sm">
             <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
@@ -381,6 +541,7 @@ export default function WorkoutLogPage() {
           </div>
         </div>
 
+        {/* Workout plan overview */}
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <h3 className="text-lg font-bold text-gray-900 mb-4">Workout Plan</h3>
           <div className="space-y-2">
@@ -388,6 +549,7 @@ export default function WorkoutLogPage() {
               const exerciseSets = setLogs.filter((log) => log.exerciseId === exercise.exercise_id)
               const completedCount = exerciseSets.filter((s) => s.completed).length
               const isActive = index === currentExerciseIndex
+              const exEmoji = muscleGroupEmojis[exercise.muscle_group ?? ''] ?? '💪'
 
               return (
                 <div
@@ -413,6 +575,18 @@ export default function WorkoutLogPage() {
                       >
                         {completedCount === exercise.sets ? '✓' : index + 1}
                       </div>
+
+                      {/* Thumbnail mini preview in the plan list */}
+                      {getThumbnail(exercise.video_url) ? (
+                        <img
+                          src={getThumbnail(exercise.video_url)!}
+                          alt={exercise.name}
+                          className="w-10 h-10 rounded-lg object-cover"
+                        />
+                      ) : (
+                        <span className="text-xl">{exEmoji}</span>
+                      )}
+
                       <div>
                         <h4 className="font-semibold text-gray-900">{exercise.name}</h4>
                         <p className="text-xs text-gray-600">
