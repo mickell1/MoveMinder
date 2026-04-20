@@ -81,6 +81,7 @@ export default function DashboardPage() {
   const router = useRouter()
   const pathname = usePathname()
   const supabase = createClient()
+  const [userId, setUserId] = useState<string | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [recentSessions, setRecentSessions] = useState<WorkoutSession[]>([])
@@ -107,6 +108,7 @@ export default function DashboardPage() {
         router.push('/login')
         return
       }
+      setUserId(user.id)
 
       const profileResponse = await supabase
         .from('profiles')
@@ -262,13 +264,14 @@ export default function DashboardPage() {
 
   async function saveGoal() {
     const val = parseFloat(goalInput)
-    if (isNaN(val) || val <= 0) return
+    if (isNaN(val) || val <= 0 || !userId) return
     setGoalError(null)
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return
-    const { error } = await supabase.from('profiles').update({ goal_weight: val }).eq('id', user.id)
+    const { error } = await supabase
+      .from('profiles')
+      .upsert({ id: userId, goal_weight: val }, { onConflict: 'id' })
     if (error) {
       setGoalError(error.message)
+      console.error('saveGoal error:', error)
       return
     }
     setGoalWeight(val)
