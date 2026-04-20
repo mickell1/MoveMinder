@@ -88,6 +88,9 @@ export default function DashboardPage() {
   const [weighInStreak, setWeighInStreak] = useState(0)
   const [todayWeighIn, setTodayWeighIn] = useState<boolean>(false)
   const [recentWeighIns, setRecentWeighIns] = useState<WeighIn[]>([])
+  const [goalWeight, setGoalWeight] = useState<number | null>(null)
+  const [editingGoal, setEditingGoal] = useState(false)
+  const [goalInput, setGoalInput] = useState('')
  
   const today = new Date().toLocaleDateString('en-CA')
   const currentHour = new Date().getHours()
@@ -114,6 +117,7 @@ export default function DashboardPage() {
       }
 
       setProfile(profileResponse.data ?? null)
+      setGoalWeight(profileResponse.data?.goal_weight ?? null)
 
       // Fetch recent workout sessions
       const sessionsResponse = await supabase
@@ -226,6 +230,16 @@ export default function DashboardPage() {
     loadProfile()
   }, [router, supabase, pathname, today])
 
+  async function saveGoal() {
+    const val = parseFloat(goalInput)
+    if (isNaN(val) || val <= 0) return
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return
+    await supabase.from('profiles').update({ goal_weight: val }).eq('id', user.id)
+    setGoalWeight(val)
+    setEditingGoal(false)
+  }
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     router.push('/login')
@@ -296,6 +310,7 @@ export default function DashboardPage() {
           { href: '/dashboard/workouts', label: 'Workouts' },
           { href: '/dashboard/history', label: 'History' },
           { href: '/exercises', label: 'Exercises' },
+          { href: '/progress', label: 'Progress' },
         ]}
         onLogout={handleLogout}
       />
@@ -443,6 +458,48 @@ export default function DashboardPage() {
               </div>
             </div>
           )}
+
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium text-gray-600">Weight Goal</p>
+              <button onClick={() => { setEditingGoal(true); setGoalInput(goalWeight ? String(goalWeight) : '') }} className="text-xs text-blue-600 hover:text-blue-700">
+                {goalWeight ? 'Edit' : 'Set goal'}
+              </button>
+            </div>
+            {editingGoal ? (
+              <div className="flex gap-2">
+                <input type="number" step="0.1" value={goalInput} onChange={e => setGoalInput(e.target.value)}
+                  placeholder="e.g. 75" className="w-28 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900" />
+                <button onClick={saveGoal} className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">Save</button>
+                <button onClick={() => setEditingGoal(false)} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+              </div>
+            ) : goalWeight ? (
+              <div>
+                <div className="flex justify-between text-sm mb-1">
+                  <span className="text-gray-500">Current: <span className="font-medium text-gray-900">{recentWeighIns[0]?.weight_kg ?? '—'} kg</span></span>
+                  <span className="text-gray-500">Goal: <span className="font-medium text-gray-900">{goalWeight} kg</span></span>
+                </div>
+                {recentWeighIns[0] && (() => {
+                  const current = recentWeighIns[0].weight_kg
+                  const start = recentWeighIns[recentWeighIns.length - 1]?.weight_kg ?? current
+                  const totalChange = Math.abs(start - goalWeight)
+                  const progress = totalChange === 0 ? 100 : Math.min(100, Math.max(0, Math.abs(start - current) / totalChange * 100))
+                  const remaining = Math.abs(current - goalWeight).toFixed(1)
+                  const achieved = Math.abs(current - goalWeight) < 0.5
+                  return (
+                    <div>
+                      <div className="w-full bg-gray-100 rounded-full h-2 mb-1">
+                        <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${progress}%` }} />
+                      </div>
+                      <p className="text-xs text-gray-500">{achieved ? '🎉 Goal reached!' : `${remaining} kg to go`}</p>
+                    </div>
+                  )
+                })()}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400">Set a target weight to track your progress</p>
+            )}
+          </div>
         </div>
 
         {/* Quick Actions */}
