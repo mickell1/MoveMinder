@@ -157,7 +157,7 @@ export default function ProgressPage() {
         url: shareUrl,
       })
     } else {
-      await navigator.clipboard.writeText(shareText)
+      await (navigator as Navigator).clipboard.writeText(shareText)
     }
   }
 
