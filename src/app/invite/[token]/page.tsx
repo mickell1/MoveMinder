@@ -5,6 +5,10 @@ import { createClient } from '@/src/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
  
+function InviterName({ name }: { name: string | null }) {
+  return <span className="font-semibold">{name ?? 'Someone'}</span>
+}
+
 type InviteState =
   | { status: 'loading' }
   | { status: 'invalid'; reason: string }
@@ -133,9 +137,6 @@ export default function InvitePage() {
     }
   }, [state.status, router])
  
-  const InviterName = ({ name }: { name: string | null }) => (
-    <span className="font-semibold">{name ?? 'Someone'}</span>
-  )
  
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 flex items-center justify-center p-4">
