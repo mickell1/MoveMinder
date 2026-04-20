@@ -90,6 +90,7 @@ export default function DashboardPage() {
   const [recentWeighIns, setRecentWeighIns] = useState<WeighIn[]>([])
   const [goalWeight, setGoalWeight] = useState<number | null>(null)
   const [editingGoal, setEditingGoal] = useState(false)
+  const [goalError, setGoalError] = useState<string | null>(null)
   const [goalInput, setGoalInput] = useState('')
  
   const today = new Date().toLocaleDateString('en-CA')
@@ -233,9 +234,14 @@ export default function DashboardPage() {
   async function saveGoal() {
     const val = parseFloat(goalInput)
     if (isNaN(val) || val <= 0) return
+    setGoalError(null)
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    await supabase.from('profiles').update({ goal_weight: val }).eq('id', user.id)
+    const { error } = await supabase.from('profiles').update({ goal_weight: val }).eq('id', user.id)
+    if (error) {
+      setGoalError(error.message)
+      return
+    }
     setGoalWeight(val)
     setEditingGoal(false)
   }
@@ -467,11 +473,14 @@ export default function DashboardPage() {
               </button>
             </div>
             {editingGoal ? (
-              <div className="flex gap-2">
-                <input type="number" step="0.1" value={goalInput} onChange={e => setGoalInput(e.target.value)}
-                  placeholder="e.g. 75" className="w-28 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900" />
-                <button onClick={saveGoal} className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">Save</button>
-                <button onClick={() => setEditingGoal(false)} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+              <div className="space-y-2">
+                <div className="flex gap-2">
+                  <input type="number" step="0.1" value={goalInput} onChange={e => setGoalInput(e.target.value)}
+                    placeholder="e.g. 75" className="w-28 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900" />
+                  <button onClick={saveGoal} className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">Save</button>
+                  <button onClick={() => { setEditingGoal(false); setGoalError(null) }} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
+                </div>
+                {goalError && <p className="text-xs text-red-500">{goalError}</p>}
               </div>
             ) : goalWeight ? (
               <div>
