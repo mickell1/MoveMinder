@@ -92,6 +92,7 @@ export default function DashboardPage() {
   const [editingGoal, setEditingGoal] = useState(false)
   const [goalError, setGoalError] = useState<string | null>(null)
   const [goalInput, setGoalInput] = useState('')
+  const [pendingRequests, setPendingRequests] = useState<{ friendshipId: string; name: string | null }[]>([])
  
   const today = new Date().toLocaleDateString('en-CA')
   const currentHour = new Date().getHours()
@@ -201,7 +202,25 @@ export default function DashboardPage() {
       setWeighInStreak(calcWeighInStreak(weighInDates))
       setTodayWeighIn(weighInDates.includes(today))
       setRecentWeighIns(allWeighIns.slice(0, 14))
- 
+
+      // Fetch pending friend requests
+      const { data: pending } = await supabase
+        .from('friendships')
+        .select('id, user_id')
+        .eq('friend_id', user.id)
+        .eq('status', 'pending')
+
+      if (pending && pending.length > 0) {
+        const requesterIds = pending.map(p => p.user_id)
+        const { data: profiles } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', requesterIds)
+        const profileMap = new Map((profiles ?? []).map(p => [p.id, p.full_name as string | null]))
+        setPendingRequests(pending.map(p => ({ friendshipId: p.id, name: profileMap.get(p.user_id) ?? null })))
+      } else {
+        setPendingRequests([])
+      }
 
       setLoading(false)
 
@@ -230,6 +249,16 @@ export default function DashboardPage() {
 
     loadProfile()
   }, [router, supabase, pathname, today])
+
+  async function acceptRequest(friendshipId: string) {
+    await supabase.from('friendships').update({ status: 'accepted', accepted_at: new Date().toISOString() }).eq('id', friendshipId)
+    setPendingRequests(prev => prev.filter(r => r.friendshipId !== friendshipId))
+  }
+
+  async function rejectRequest(friendshipId: string) {
+    await supabase.from('friendships').delete().eq('id', friendshipId)
+    setPendingRequests(prev => prev.filter(r => r.friendshipId !== friendshipId))
+  }
 
   async function saveGoal() {
     const val = parseFloat(goalInput)
@@ -322,7 +351,47 @@ export default function DashboardPage() {
       />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-         {/* Morning weigh-in banner */}
+        {/* Pending friend requests */}
+        {pendingRequests.length > 0 && (
+          <div className="bg-white rounded-xl shadow-sm border border-blue-100 p-4 mb-6">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full">
+                {pendingRequests.length}
+              </span>
+              <h3 className="font-semibold text-gray-900 text-sm">
+                Friend Request{pendingRequests.length !== 1 ? 's' : ''}
+              </h3>
+            </div>
+            <div className="space-y-2">
+              {pendingRequests.map(r => (
+                <div key={r.friendshipId} className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm font-bold flex-shrink-0">
+                      {r.name?.trim()[0]?.toUpperCase() ?? '?'}
+                    </div>
+                    <span className="text-sm font-medium text-gray-900">{r.name ?? 'Someone'}</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => acceptRequest(r.friendshipId)}
+                      className="px-3 py-1 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      Accept
+                    </button>
+                    <button
+                      onClick={() => rejectRequest(r.friendshipId)}
+                      className="px-3 py-1 text-xs font-semibold bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Morning weigh-in banner */}
         {isMorningWindow && (
           todayWeighIn ? (
             <div className="bg-green-50 border border-green-200 rounded-xl px-5 py-4 mb-6 flex items-center gap-3">
