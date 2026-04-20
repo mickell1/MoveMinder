@@ -312,7 +312,11 @@ export default function FriendsPage() {
                     <div className="flex items-center gap-3">
                       <Avatar name={f.profile.full_name} />
                       <div>
-                        <p className="font-semibold text-gray-900">{f.profile.full_name ?? 'Unknown'}</p>
+                        <p className="font-semibold text-gray-900">
+                          {f.profile.full_name ?? (
+                            <span className="text-gray-400 font-normal italic">Profile not set up</span>
+                          )}
+                        </p>
                         <p className="text-sm text-gray-500">
                           {f.weeklyWorkouts} workout{f.weeklyWorkouts !== 1 ? 's' : ''} this week
                           {f.weighInStreak > 0 && (
@@ -345,7 +349,9 @@ export default function FriendsPage() {
                   <div key={f.friendshipId} className="flex items-center justify-between px-5 py-4">
                     <div className="flex items-center gap-3">
                       <Avatar name={f.profile.full_name} />
-                      <p className="font-semibold text-gray-900">{f.profile.full_name ?? 'Unknown'}</p>
+                      <p className="font-semibold text-gray-900">
+                        {f.profile.full_name ?? <span className="text-gray-400 font-normal italic">Profile not set up</span>}
+                      </p>
                     </div>
                     <div className="flex gap-2">
                       <button
