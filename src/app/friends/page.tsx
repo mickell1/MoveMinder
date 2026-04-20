@@ -239,7 +239,7 @@ export default function FriendsPage() {
                 onClick={copyLink}
                 className="w-full py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
               >
-                {copied ? '✓ Copied!' : navigator.share ? 'Share Link' : 'Copy Link'}
+                {copied ? '✓ Copied!' : 'share' in navigator ? 'Share Link' : 'Copy Link'}
               </button>
               <button
                 onClick={() => setInviteLink(null)}
