@@ -76,7 +76,13 @@ export async function middleware(request: NextRequest) {
   }
 
   // If not logged in and trying to access protected routes
-  if (!user && !request.nextUrl.pathname.startsWith('/login') && !request.nextUrl.pathname.startsWith('/signup') && request.nextUrl.pathname !== '/') {
+  if (
+    !user &&
+    !request.nextUrl.pathname.startsWith('/login') &&
+    !request.nextUrl.pathname.startsWith('/signup') &&
+    !request.nextUrl.pathname.startsWith('/invite/') &&
+    request.nextUrl.pathname !== '/'
+  ) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
