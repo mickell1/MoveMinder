@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { AppHeader } from '@/src/components/AppHeader'
  
 type FriendProfile = { id: string; full_name: string | null }
  
@@ -230,21 +231,14 @@ export default function FriendsPage() {
  
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <span className="text-3xl">💪</span>
-              <h1 className="text-2xl font-bold text-gray-900">Friends</h1>
-            </div>
-            <div className="flex items-center gap-4">
-              <Link href="/feed" className="text-sm font-medium text-gray-700 hover:text-blue-600">Feed</Link>
-              <Link href="/weigh-in" className="text-sm font-medium text-gray-700 hover:text-blue-600">Weigh-In</Link>
-              <Link href="/dashboard" className="text-sm font-medium text-gray-700 hover:text-blue-600">Dashboard</Link>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        title="Friends"
+        links={[
+          { href: '/feed', label: 'Feed' },
+          { href: '/weigh-in', label: 'Weigh-In' },
+          { href: '/dashboard', label: 'Dashboard' },
+        ]}
+      />
  
       <main className="max-w-2xl mx-auto px-4 py-8">
         {/* Invite card */}

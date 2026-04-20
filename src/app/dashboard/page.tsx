@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
+import { AppHeader } from '@/src/components/AppHeader'
 import type { User } from '@supabase/supabase-js'
 
 type Profile = {
@@ -286,31 +287,18 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <span className="text-3xl">💪</span>
-              <h1 className="text-2xl font-bold text-gray-900">Fitness Coach</h1>
-            </div>
-            <div className="flex items-center gap-4">
-                <Link href="/feed" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">Feed</Link>
-              <Link href="/friends" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">Friends</Link>
-              <Link href="/weigh-in" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">Weigh-In</Link>
-              <Link href="/dashboard/workouts" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">Workouts</Link>
-              <Link href="/dashboard/history" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">History</Link>
-              <Link href="/exercises" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">Exercises</Link>
-              <button
-                onClick={handleLogout}
-                className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
-              >
-                Logout
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        title="Fitness Coach"
+        links={[
+          { href: '/feed', label: 'Feed' },
+          { href: '/friends', label: 'Friends' },
+          { href: '/weigh-in', label: 'Weigh-In' },
+          { href: '/dashboard/workouts', label: 'Workouts' },
+          { href: '/dashboard/history', label: 'History' },
+          { href: '/exercises', label: 'Exercises' },
+        ]}
+        onLogout={handleLogout}
+      />
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
          {/* Morning weigh-in banner */}
