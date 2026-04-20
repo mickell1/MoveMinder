@@ -23,6 +23,42 @@ type WorkoutSession = {
   }[] | null
 }
 
+type WeighIn = {
+  logged_date: string
+  weight_kg: number
+}
+
+function WeightSparkline({ entries }: { entries: WeighIn[] }) {
+  if (entries.length < 2) return null
+  const sorted = [...entries].sort((a, b) => a.logged_date.localeCompare(b.logged_date))
+  const weights = sorted.map(e => e.weight_kg)
+  const min = Math.min(...weights)
+  const max = Math.max(...weights)
+  const range = max - min || 1
+  const W = 160, H = 48, pad = 4
+  const pts = weights.map((w, i) => {
+    const x = pad + (i / (weights.length - 1)) * (W - pad * 2)
+    const y = pad + ((max - w) / range) * (H - pad * 2)
+    return `${x},${y}`
+  })
+  return (
+    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="overflow-visible">
+      <polyline
+        points={pts.join(' ')}
+        fill="none"
+        stroke="#3b82f6"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      {pts.slice(-1).map(pt => {
+        const [x, y] = pt.split(',').map(Number)
+        return <circle key="dot" cx={x} cy={y} r={3} fill="#3b82f6" />
+      })}
+    </svg>
+  )
+}
+
 function calcWeighInStreak(dates: string[]): number {
   if (dates.length === 0) return 0
   const set = new Set(dates)
@@ -50,6 +86,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState({ thisWeek: 0, total: 0, streak: 0 })
   const [weighInStreak, setWeighInStreak] = useState(0)
   const [todayWeighIn, setTodayWeighIn] = useState<boolean>(false)
+  const [recentWeighIns, setRecentWeighIns] = useState<WeighIn[]>([])
  
   const today = new Date().toLocaleDateString('en-CA')
   const currentHour = new Date().getHours()
@@ -148,13 +185,16 @@ export default function DashboardPage() {
       ago60.setDate(ago60.getDate() - 60)
       const { data: weighins } = await supabase
         .from('weigh_ins')
-        .select('logged_date')
+        .select('logged_date, weight_kg')
         .eq('user_id', user.id)
         .gte('logged_date', ago60.toLocaleDateString('en-CA'))
- 
-      const weighInDates = (weighins ?? []).map((w: { logged_date: string }) => w.logged_date)
+        .order('logged_date', { ascending: false })
+
+      const allWeighIns = (weighins ?? []) as WeighIn[]
+      const weighInDates = allWeighIns.map(w => w.logged_date)
       setWeighInStreak(calcWeighInStreak(weighInDates))
       setTodayWeighIn(weighInDates.includes(today))
+      setRecentWeighIns(allWeighIns.slice(0, 14))
  
 
       setLoading(false)
@@ -350,6 +390,71 @@ export default function DashboardPage() {
               </Link>
             </p>
           </div>
+        </div>
+
+        {/* Weight Trend */}
+        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-xl font-bold text-gray-900">Weight Trend</h3>
+            <Link href="/weigh-in/history" className="text-sm font-medium text-blue-600 hover:text-blue-700">
+              Full History
+            </Link>
+          </div>
+
+          {recentWeighIns.length === 0 ? (
+            <div className="text-center py-8">
+              <p className="text-gray-500 mb-3">No weigh-ins logged yet</p>
+              <Link
+                href="/weigh-in"
+                className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
+              >
+                Log Your First Weight
+              </Link>
+            </div>
+          ) : (
+            <div className="flex flex-col md:flex-row md:items-start gap-6">
+              {/* Latest + delta */}
+              <div className="flex-shrink-0">
+                <p className="text-sm text-gray-500 mb-1">Latest</p>
+                <p className="text-4xl font-bold text-gray-900">
+                  {recentWeighIns[0].weight_kg}
+                  <span className="text-lg font-normal text-gray-500 ml-1">kg</span>
+                </p>
+                {recentWeighIns.length >= 2 && (() => {
+                  const delta = recentWeighIns[0].weight_kg - recentWeighIns[1].weight_kg
+                  const sign = delta > 0 ? '+' : ''
+                  const colour = delta > 0 ? 'text-red-500' : delta < 0 ? 'text-green-600' : 'text-gray-400'
+                  return (
+                    <p className={`text-sm font-medium mt-1 ${colour}`}>
+                      {sign}{delta.toFixed(1)} kg vs previous
+                    </p>
+                  )
+                })()}
+              </div>
+
+              {/* Sparkline */}
+              {recentWeighIns.length >= 2 && (
+                <div className="flex-1 flex items-center">
+                  <WeightSparkline entries={recentWeighIns} />
+                </div>
+              )}
+
+              {/* Last 5 entries */}
+              <div className="flex-shrink-0 min-w-[160px]">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Recent</p>
+                <div className="space-y-1.5">
+                  {recentWeighIns.slice(0, 5).map(entry => (
+                    <div key={entry.logged_date} className="flex justify-between text-sm">
+                      <span className="text-gray-500">
+                        {new Date(entry.logged_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </span>
+                      <span className="font-medium text-gray-900">{entry.weight_kg} kg</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Quick Actions */}
