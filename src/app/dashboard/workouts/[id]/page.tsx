@@ -3,237 +3,620 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
-import Link from 'next/link'
-
-type Workout = {
-  id: string
-  name: string
-  description: string | null
-  created_at: string
-}
 
 type Exercise = {
   id: string
+  exercise_id: string
   name: string
   sets: number
   reps: number
   rest_seconds: number
   order_index: number
+  video_url?: string | null
+  muscle_group?: string | null
 }
 
-export default function WorkoutDetailPage() {
+type SetLog = {
+  workoutExerciseId: string
+  exerciseId: string
+  setNumber: number
+  reps: number
+  weight: number
+  completed: boolean
+}
+
+// ─── Media helpers ─────────────────────────────────────────────────────────────
+type MediaType = 'youtube' | 'gif' | 'video' | null
+
+function getMediaType(url: string | null | undefined): MediaType {
+  if (!url) return null
+  if (url.includes('youtube.com') || url.includes('youtu.be')) return 'youtube'
+  if (/\.gif(\?|$)/i.test(url)) return 'gif'
+  if (/\.(mp4|webm|mov)(\?|$)/i.test(url)) return 'video'
+  return 'youtube'
+}
+
+function getYouTubeVideoId(url: string): string | null {
+  try {
+    const parsed = new URL(url)
+    if (parsed.hostname.includes('youtu.be')) return parsed.pathname.slice(1).split('?')[0]
+    if (parsed.pathname.includes('/shorts/')) return parsed.pathname.split('/shorts/')[1].split('/')[0]
+    return parsed.searchParams.get('v')
+  } catch {
+    return null
+  }
+}
+
+function getYouTubeEmbedUrl(url: string | null | undefined): string | null {
+  if (!url) return null
+  const id = getYouTubeVideoId(url)
+  if (!id) return null
+  return `https://www.youtube-nocookie.com/embed/${id}?rel=0&autoplay=1&mute=1&loop=1&playlist=${id}`
+}
+
+function getThumbnail(url: string | null | undefined): string | null {
+  if (!url) return null
+  const id = getYouTubeVideoId(url)
+  return id ? `https://img.youtube.com/vi/${id}/hqdefault.jpg` : null
+}
+
+// Renders the appropriate player for a given video_url (YouTube / GIF / MP4)
+function ExerciseMediaPlayer({ exercise }: { exercise: Exercise }) {
+  const type = getMediaType(exercise.video_url)
+
+  if (type === 'youtube') {
+    const src = getYouTubeEmbedUrl(exercise.video_url)
+    if (!src) return null
+    return (
+      <iframe
+        key={exercise.id}
+        width="100%"
+        height="100%"
+        src={src}
+        title={exercise.name}
+        frameBorder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+        allowFullScreen
+      />
+    )
+  }
+
+  if (type === 'gif') {
+    return (
+      <img
+        src={exercise.video_url!}
+        alt={exercise.name}
+        className="w-full h-full object-contain bg-black"
+      />
+    )
+  }
+
+  if (type === 'video') {
+    return (
+      <video
+        key={exercise.id}
+        src={exercise.video_url!}
+        autoPlay
+        muted
+        loop
+        playsInline
+        controls
+        className="w-full h-full object-contain bg-black"
+      />
+    )
+  }
+
+  return null
+}
+
+const muscleGroupEmojis: Record<string, string> = {
+  chest: '💪', back: '🦾', legs: '🦵', shoulders: '🏋️',
+  arms: '💪', core: '🔥',
+}
+
+export default function WorkoutLogPage() {
   const router = useRouter()
   const params = useParams()
-  const supabase = createClient()
-  const workoutId = params?.id as string | undefined
+  const supabaseClient = createClient()
 
-  const [workout, setWorkout] = useState<Workout | null>(null)
+  const [workoutName, setWorkoutName] = useState('')
   const [exercises, setExercises] = useState<Exercise[]>([])
+  const [setLogs, setSetLogs] = useState<SetLog[]>([])
+  const [currentExerciseIndex, setCurrentExerciseIndex] = useState(0)
+  const [currentSet, setCurrentSet] = useState(1)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [restTimer, setRestTimer] = useState(0)
+  const [isResting, setIsResting] = useState(false)
+  const [startTime] = useState(new Date())
+
+  const [isVideoCollapsed, setIsVideoCollapsed] = useState(false)
+  const [thumbErrors, setThumbErrors] = useState<Record<string, boolean>>({})
 
   useEffect(() => {
-    if (!workoutId) return
-
     async function loadWorkout() {
-      const { data: authData } = await supabase.auth.getUser()
-      const user = authData?.user
+      const { data: { user } } = await supabaseClient.auth.getUser()
+      if (!user) { router.push('/login'); return }
 
-      if (!user) {
-        router.push('/login')
-        return
-      }
+      const workoutResponse = await supabaseClient
+        .from('workouts').select('*')
+        .eq('id', params.id).eq('user_id', user.id).single()
 
-      // Load workout
-      const { data: workoutData, error: workoutError } = await supabase
-        .from('workouts')
-        .select('*')
-        .eq('id', workoutId)
-        .eq('user_id', user.id)
-        .single()
+      if (!workoutResponse.data) { router.push('/dashboard/workouts'); return }
+      setWorkoutName(workoutResponse.data.name)
 
-      if (workoutError) {
-        console.error('Error loading workout:', workoutError)
-        router.push('/dashboard/workouts')
-        return
-      }
-
-      setWorkout(workoutData as Workout)
-
-      // Load exercises
-      const { data: exercisesData, error: exercisesError } = await supabase
+      // Two-query approach — avoids fragile PostgREST join syntax
+      const weResponse = await supabaseClient
         .from('workout_exercises')
         .select('*')
-        .eq('workout_id', workoutId)
+        .eq('workout_id', params.id)
         .order('order_index', { ascending: true })
 
-      if (exercisesError) {
-        console.error('Error loading exercises:', exercisesError)
-      } else {
-        setExercises((exercisesData as Exercise[]) || [])
+      if (weResponse.error) {
+        console.error('Error loading workout_exercises:', weResponse.error)
+        setLoading(false)
+        return
       }
+
+      const weRows = weResponse.data ?? []
+
+      type ExerciseRow = {
+        id: string
+        name: string | null
+        video_url: string | null
+        muscle_group: string | null
+      }
+
+      const exerciseMap = new Map<string, ExerciseRow>()
+      const exerciseIds = [
+        ...new Set(
+          weRows.map((w: { exercise_id: string | null }) => w.exercise_id).filter(Boolean)
+        ),
+      ] as string[]
+
+      if (exerciseIds.length > 0) {
+        const exResponse = await supabaseClient
+          .from('exercises')
+          .select('id, name, video_url, muscle_group')
+          .in('id', exerciseIds)
+
+        if (exResponse.error) {
+          console.error('Error loading exercises:', exResponse.error)
+        }
+
+        ;(exResponse.data as ExerciseRow[] | null)?.forEach((ex) => {
+          exerciseMap.set(ex.id, ex)
+        })
+      }
+
+      type WERow = {
+        id: string
+        exercise_id: string
+        name?: string | null
+        sets: number
+        reps: number
+        rest_seconds: number
+        order_index: number
+      }
+
+      const flat: Exercise[] = (weRows as WERow[]).map((row) => {
+        const exDetails = exerciseMap.get(row.exercise_id)
+        return {
+          id: row.id,
+          exercise_id: row.exercise_id,
+          name: exDetails?.name ?? row.name ?? 'Unknown',
+          sets: row.sets,
+          reps: row.reps,
+          rest_seconds: row.rest_seconds,
+          order_index: row.order_index,
+          video_url: exDetails?.video_url ?? null,
+          muscle_group: exDetails?.muscle_group ?? null,
+        }
+      })
+
+      setExercises(flat)
+
+      const logs: SetLog[] = []
+      flat.forEach((ex) => {
+        for (let i = 1; i <= ex.sets; i++) {
+          logs.push({
+            workoutExerciseId: ex.id,
+            exerciseId: ex.exercise_id,
+            setNumber: i,
+            reps: ex.reps,
+            weight: 0,
+            completed: false,
+          })
+        }
+      })
+      setSetLogs(logs)
 
       setLoading(false)
     }
 
     loadWorkout()
-  }, [workoutId, router, supabase])
+  }, [params.id, router, supabaseClient])
 
-  const startWorkout = () => {
-    if (!workoutId) return
-    router.push(`/dashboard/workouts/${workoutId}/log`)
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null
+    if (isResting && restTimer > 0) {
+      interval = setInterval(() => {
+        setRestTimer((prev) => {
+          if (prev <= 1) { setIsResting(false); return 0 }
+          return prev - 1
+        })
+      }, 1000)
+    }
+    return () => { if (interval) clearInterval(interval) }
+  }, [isResting, restTimer])
+
+  const currentExercise = exercises[currentExerciseIndex]
+  const currentExerciseSets = setLogs.filter((log) => log.workoutExerciseId === currentExercise?.id)
+  const currentSetLog = currentExerciseSets?.[currentSet - 1]
+
+  const updateSetLog = (field: 'reps' | 'weight', value: number) => {
+    setSetLogs(setLogs.map((log) =>
+      log.workoutExerciseId === currentExercise.id && log.setNumber === currentSet
+        ? { ...log, [field]: value } : log
+    ))
+  }
+
+  const completeSet = () => {
+    setSetLogs(setLogs.map((log) =>
+      log.workoutExerciseId === currentExercise.id && log.setNumber === currentSet
+        ? { ...log, completed: true } : log
+    ))
+    setRestTimer(currentExercise.rest_seconds)
+    setIsResting(true)
+
+    setTimeout(() => {
+      if (currentSet < currentExercise.sets) {
+        setCurrentSet(currentSet + 1)
+      } else if (currentExerciseIndex < exercises.length - 1) {
+        setCurrentExerciseIndex(currentExerciseIndex + 1)
+        setCurrentSet(1)
+        setIsResting(false)
+      }
+    }, 300)
+  }
+
+  const skipRest = () => { setIsResting(false); setRestTimer(0) }
+
+  const finishWorkout = async () => {
+    if (!confirm('Are you sure you want to finish this workout?')) return
+    setSaving(true)
+
+    const { data: { user } } = await supabaseClient.auth.getUser()
+    if (!user) { router.push('/login'); return }
+
+    const endTime = new Date()
+    const durationMinutes = Math.round((endTime.getTime() - startTime.getTime()) / 60000)
+
+    const sessionResponse = await supabaseClient
+      .from('workout_sessions')
+      .insert({
+        user_id: user.id,
+        workout_id: params.id,
+        started_at: startTime.toISOString(),
+        completed_at: endTime.toISOString(),
+        duration_minutes: durationMinutes,
+      })
+      .select().single()
+
+    if (sessionResponse.error || !sessionResponse.data) {
+      console.error('Error saving session:', sessionResponse.error)
+      alert('Failed to save workout')
+      setSaving(false)
+      return
+    }
+
+    const completedSets = setLogs
+      .filter((log) => log.completed)
+      .map((log) => ({
+        session_id: sessionResponse.data.id,
+        exercise_id: log.exerciseId,
+        set_number: log.setNumber,
+        reps: log.reps,
+        weight: log.weight,
+      }))
+
+    if (completedSets.length > 0) {
+      const { error: setsError } = await supabaseClient
+        .from('workout_sets').insert(completedSets)
+      if (setsError) {
+        console.error('Error saving sets:', JSON.stringify(setsError, null, 2))
+      }
+    }
+
+    router.push('/dashboard/history')
   }
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-xl text-gray-600">Loading...</div>
+        <div className="text-xl text-gray-600">Loading workout...</div>
       </div>
     )
   }
 
-  if (!workout) {
-    return null
+  if (!currentExercise) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="text-6xl mb-4">🎉</div>
+          <h2 className="text-3xl font-bold text-gray-900 mb-4">Workout Complete!</h2>
+          <p className="text-gray-600 mb-6">Great job finishing your workout!</p>
+          <button
+            onClick={finishWorkout}
+            disabled={saving}
+            className="px-8 py-4 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 disabled:bg-gray-400 transition-colors"
+          >
+            {saving ? 'Saving...' : 'Save & Finish'}
+          </button>
+        </div>
+      </div>
+    )
   }
 
-  const totalSets = exercises.reduce((sum, ex) => sum + (ex.sets || 0), 0)
-  const estimatedTime = exercises.reduce(
-    (sum, ex) => sum + (ex.sets * 45) + (ex.rest_seconds * Math.max(0, ex.sets - 1)),
-    0
-  )
-  const estimatedMinutes = Math.round(estimatedTime / 60)
+  const completedSets = currentExerciseSets.filter((s) => s.completed).length
+  const totalSets = currentExercise.sets
+  const progress =
+    ((currentExerciseIndex * 100) + ((completedSets / totalSets) * 100)) / exercises.length
+
+  const emoji = muscleGroupEmojis[currentExercise.muscle_group ?? ''] ?? '💪'
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
       {/* Header */}
       <header className="bg-white shadow-sm border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/dashboard/workouts"
-              className="text-gray-600 hover:text-gray-900"
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">{workoutName}</h1>
+              <p className="text-sm text-gray-600">
+                Exercise {currentExerciseIndex + 1} of {exercises.length}
+              </p>
+            </div>
+            <button
+              onClick={finishWorkout}
+              className="px-4 py-2 bg-red-50 text-red-600 rounded-lg font-semibold hover:bg-red-100 transition-colors"
             >
-              ← Back
-            </Link>
-            <h1 className="text-2xl font-bold text-gray-900">{workout.name}</h1>
+              End Workout
+            </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Workout Summary */}
-        <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl shadow-lg p-6 text-white mb-6">
-          <h2 className="text-2xl font-bold mb-4">Workout Overview</h2>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <div className="text-3xl font-bold">{exercises.length}</div>
-              <div className="text-blue-100 text-sm">Exercises</div>
+      {/* Progress bar */}
+      <div className="bg-white border-b">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-medium text-gray-700">Overall Progress</span>
+            <span className="text-sm font-medium text-gray-700">{Math.round(progress)}%</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-3">
+            <div
+              className="bg-gradient-to-r from-blue-600 to-indigo-600 h-3 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+        {/* ── Sticky video reference ───────────────────────────────────────── */}
+        <div className="sticky top-4 z-30 mb-6">
+          <div className="bg-gray-900 rounded-xl shadow-2xl overflow-hidden ring-1 ring-black/5">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-gray-800">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className="text-green-400 text-xs font-bold uppercase tracking-wider shrink-0">
+                  🎬 Reference
+                </span>
+                <span className="text-white text-sm font-semibold truncate">
+                  {currentExercise.name}
+                </span>
+                {currentExercise.muscle_group && (
+                  <span className="text-gray-400 text-xs capitalize shrink-0 hidden sm:inline">
+                    • {emoji} {currentExercise.muscle_group}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={() => setIsVideoCollapsed((c) => !c)}
+                className="text-gray-300 hover:text-white text-xs px-3 py-1 rounded bg-gray-700 hover:bg-gray-600 transition-colors shrink-0 ml-2"
+              >
+                {isVideoCollapsed ? '▼ Show' : '▲ Hide'}
+              </button>
             </div>
-            <div>
-              <div className="text-3xl font-bold">{totalSets}</div>
-              <div className="text-blue-100 text-sm">Total Sets</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold">~{estimatedMinutes}</div>
-              <div className="text-blue-100 text-sm">Minutes</div>
-            </div>
+
+            {!isVideoCollapsed && (
+              <>
+                {currentExercise.video_url ? (
+                  <div className="aspect-video w-full bg-black">
+                    <ExerciseMediaPlayer exercise={currentExercise} />
+                  </div>
+                ) : (
+                  /* No video: show emoji + YouTube search button */
+                  <div className="aspect-video w-full bg-gradient-to-br from-blue-900 via-indigo-900 to-purple-900 flex items-center justify-center relative overflow-hidden">
+                    {(() => {
+                      const thumb = getThumbnail(currentExercise.video_url)
+                      return thumb && !thumbErrors[currentExercise.id] ? (
+                        <img
+                          src={thumb}
+                          alt={currentExercise.name}
+                          className="absolute inset-0 w-full h-full object-cover opacity-60"
+                          onError={() => setThumbErrors((prev) => ({ ...prev, [currentExercise.id]: true }))}
+                        />
+                      ) : null
+                    })()}
+                    <div className="relative text-center p-4">
+                      <div className="text-7xl mb-3">{emoji}</div>
+                      <p className="text-white text-base font-semibold mb-3">
+                        No video for {currentExercise.name}
+                      </p>
+                      <a
+                        href={`https://www.youtube.com/results?search_query=${encodeURIComponent('how to ' + currentExercise.name + ' proper form')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-block px-5 py-2.5 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 transition-colors text-sm"
+                      >🔍 Search YouTube</a>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
 
-        {/* Description */}
-        {workout.description && (
-          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 mb-6">
-            <h3 className="text-sm font-medium text-gray-600 mb-2">Description</h3>
-            <p className="text-gray-900">{workout.description}</p>
+        {/* Rest timer */}
+        {isResting && (
+          <div className="bg-orange-500 text-white rounded-xl shadow-lg p-8 mb-6 text-center animate-pulse">
+            <div className="text-6xl font-bold mb-2">{restTimer}s</div>
+            <p className="text-xl mb-4">Rest Time</p>
+            <button
+              onClick={skipRest}
+              className="px-6 py-3 bg-white text-orange-600 rounded-lg font-semibold hover:bg-orange-50 transition-colors"
+            >Skip Rest</button>
           </div>
         )}
 
-        {/* Exercises List */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">
-            Exercises ({exercises.length})
-          </h2>
+        {/* Current set card */}
+        <div className="bg-white rounded-xl shadow-lg p-8 mb-6">
+          <div className="text-center mb-6">
+            <p className="text-lg text-gray-600">Set {currentSet} of {totalSets}</p>
+          </div>
 
-          {exercises.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="text-5xl mb-4">🤷</div>
-              <p className="text-gray-500">No exercises in this workout</p>
+          <div className="flex gap-2 mb-6 justify-center flex-wrap">
+            {Array.from({ length: totalSets }).map((_, index) => (
+              <div
+                key={index}
+                className={`w-12 h-12 rounded-full flex items-center justify-center font-bold transition-all ${
+                  currentExerciseSets[index]?.completed
+                    ? 'bg-green-500 text-white scale-110'
+                    : index + 1 === currentSet
+                    ? 'bg-blue-600 text-white scale-110 ring-4 ring-blue-200'
+                    : 'bg-gray-200 text-gray-500'
+                }`}
+              >
+                {currentExerciseSets[index]?.completed ? '✓' : index + 1}
+              </div>
+            ))}
+          </div>
+
+          {currentSetLog && !currentSetLog.completed && (
+            <div className="space-y-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Reps Completed</label>
+                <input
+                  type="number"
+                  value={currentSetLog.reps}
+                  onChange={(e) => updateSetLog('reps', parseInt(e.target.value) || 0)}
+                  min="0"
+                  className="w-full px-4 py-3 text-2xl font-bold text-center border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Weight (lbs/kg)</label>
+                <input
+                  type="number"
+                  value={currentSetLog.weight}
+                  onChange={(e) => updateSetLog('weight', parseFloat(e.target.value) || 0)}
+                  min="0"
+                  step="2.5"
+                  className="w-full px-4 py-3 text-2xl font-bold text-center border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                />
+              </div>
             </div>
-          ) : (
-            <div className="space-y-3">
-              {exercises.map((exercise, index) => (
-                <div
-                  key={exercise.id}
-                  className="p-4 border border-gray-200 rounded-lg hover:border-gray-300 transition-colors"
-                >
-                  <div className="flex items-start gap-4">
-                    {/* Exercise Number */}
-                    <div className="flex-shrink-0 w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold">
-                      {index + 1}
-                    </div>
+          )}
 
-                    {/* Exercise Info */}
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-lg text-gray-900 mb-2">
-                        {exercise.name}
-                      </h3>
-                      <div className="flex items-center gap-4 text-sm text-gray-600">
-                        <div className="flex items-center gap-1">
-                          <span className="font-medium text-gray-900">{exercise.sets}</span>
-                          <span>sets</span>
-                        </div>
-                        <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-                        <div className="flex items-center gap-1">
-                          <span className="font-medium text-gray-900">{exercise.reps}</span>
-                          <span>reps</span>
-                        </div>
-                        <div className="w-1 h-1 bg-gray-400 rounded-full"></div>
-                        <div className="flex items-center gap-1">
-                          <span className="font-medium text-gray-900">{exercise.rest_seconds}s</span>
-                          <span>rest</span>
-                        </div>
-                      </div>
-                    </div>
+          {currentSetLog && !currentSetLog.completed && (
+            <button
+              onClick={completeSet}
+              className="w-full py-4 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl font-bold text-lg hover:from-green-600 hover:to-green-700 transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
+            >✓ Complete Set</button>
+          )}
 
-                    {/* Exercise Icon */}
-                    <div className="flex-shrink-0 text-2xl">
-                      💪
-                    </div>
-                  </div>
-                </div>
-              ))}
+          {currentSetLog && currentSetLog.completed && (
+            <div className="w-full py-4 bg-green-100 text-green-700 rounded-xl font-bold text-lg text-center">
+              ✓ Set Completed
             </div>
           )}
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex gap-3">
-          <Link
-            href="/dashboard/workouts"
-            className="flex-1 px-6 py-4 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 transition-colors text-center"
-          >
-            Back to Workouts
-          </Link>
-          <button
-            onClick={startWorkout}
-            disabled={exercises.length === 0}
-            className="flex-1 px-6 py-4 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl font-semibold hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-400 disabled:cursor-not-allowed transition-all shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
-          >
-            <span className="flex items-center justify-center gap-2">
-              <span>🔥</span>
-              Start Workout
-            </span>
-          </button>
-        </div>
-
-        {/* Workout Stats */}
-        <div className="mt-6 bg-blue-50 border border-blue-200 rounded-xl p-4">
-          <div className="flex items-center gap-2 text-blue-800">
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+          <div className="flex items-center gap-2 text-blue-800 text-sm">
+            <svg className="w-5 h-5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
               <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
             </svg>
-            <p className="text-sm font-medium">
-              Estimated workout time is based on 45 seconds per set plus rest periods
-            </p>
+            <p>Target: {currentExercise.reps} reps • Rest: {currentExercise.rest_seconds}s between sets</p>
+          </div>
+        </div>
+
+        {/* Workout plan */}
+        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">Workout Plan</h3>
+          <div className="space-y-2">
+            {exercises.map((exercise, index) => {
+              const exerciseSets = setLogs.filter((log) => log.workoutExerciseId === exercise.id)
+              const completedCount = exerciseSets.filter((s) => s.completed).length
+              const isActive = index === currentExerciseIndex
+              const exEmoji = muscleGroupEmojis[exercise.muscle_group ?? ''] ?? '💪'
+              const mediaType = getMediaType(exercise.video_url)
+              const thumb = mediaType === 'gif' ? exercise.video_url : getThumbnail(exercise.video_url)
+
+              return (
+                <button
+                  key={exercise.id}
+                  onClick={() => { setCurrentExerciseIndex(index); setCurrentSet(1) }}
+                  className={`w-full text-left p-3 rounded-lg border-2 transition-all ${
+                    isActive
+                      ? 'border-blue-500 bg-blue-50'
+                      : completedCount === exercise.sets
+                      ? 'border-green-300 bg-green-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm shrink-0 ${
+                          isActive
+                            ? 'bg-blue-600 text-white'
+                            : completedCount === exercise.sets
+                            ? 'bg-green-500 text-white'
+                            : 'bg-gray-200 text-gray-600'
+                        }`}
+                      >
+                        {completedCount === exercise.sets ? '✓' : index + 1}
+                      </div>
+
+                      {thumb && !thumbErrors[exercise.id] ? (
+                        <img
+                          src={thumb}
+                          alt={exercise.name}
+                          className="w-10 h-10 rounded-lg object-cover shrink-0"
+                          onError={() => setThumbErrors((prev) => ({ ...prev, [exercise.id]: true }))}
+                        />
+                      ) : (
+                        <span className="text-xl shrink-0">{exEmoji}</span>
+                      )}
+
+                      <div className="min-w-0">
+                        <h4 className="font-semibold text-gray-900 truncate">{exercise.name}</h4>
+                        <p className="text-xs text-gray-600">
+                          {exercise.sets} sets × {exercise.reps} reps
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="text-sm font-medium text-gray-600 shrink-0 ml-2">
+                      {completedCount}/{exercise.sets}
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </div>
       </main>

@@ -30,7 +30,8 @@ export default function LoginPage() {
       return
     }
 
-    router.push('/dashboard')
+   const redirect = new URLSearchParams(window.location.search).get('redirect')
+    router.push(redirect || '/dashboard')
     router.refresh()
   }
 
@@ -42,7 +43,7 @@ export default function LoginPage() {
           <div className="inline-block bg-white rounded-2xl p-4 shadow-lg mb-4">
             <span className="text-5xl">💪</span>
           </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Welcome Back!</h1>
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">Welcome!</h1>
           <p className="text-gray-600">Sign in to continue your journey</p>
         </div>
 

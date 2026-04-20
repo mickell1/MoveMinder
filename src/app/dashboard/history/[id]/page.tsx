@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
+import { ReactionBar } from '@/src/components/social/ReactionBar'
 
 type WorkoutSession = {
   id: string
@@ -47,6 +48,7 @@ export default function SessionDetailPage() {
   const [session, setSession] = useState<WorkoutSession | null>(null)
   const [exerciseGroups, setExerciseGroups] = useState<ExerciseGroup[]>([])
   const [loading, setLoading] = useState(true)
+  const [currentUserId, setCurrentUserId] = useState<string>('')
 
   useEffect(() => {
     if (!sessionId) return
@@ -59,7 +61,7 @@ export default function SessionDetailPage() {
         router.push('/login')
         return
       }
-
+    setCurrentUserId(user.id)
       // Load session
       const sessionResponse = await supabase
         .from('workout_sessions')
@@ -275,6 +277,15 @@ export default function SessionDetailPage() {
             </div>
           )}
         </div>
+
+        {/* Reactions */}
+        {currentUserId && (
+          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 mb-6">
+            <h3 className="text-sm font-medium text-gray-600 mb-3">Reactions</h3>
+            <ReactionBar sessionId={sessionId!} userId={currentUserId} />
+          </div>
+        )}
+ 
 
         {/* Action Buttons */}
         <div className="flex gap-3">

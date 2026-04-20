@@ -23,6 +23,23 @@ type WorkoutSession = {
   }[] | null
 }
 
+function calcWeighInStreak(dates: string[]): number {
+  if (dates.length === 0) return 0
+  const set = new Set(dates)
+  let streak = 0
+  const cur = new Date()
+  cur.setHours(0, 0, 0, 0)
+  if (!set.has(cur.toLocaleDateString('en-CA'))) {
+    cur.setDate(cur.getDate() - 1)
+  }
+  while (set.has(cur.toLocaleDateString('en-CA'))) {
+    streak++
+    cur.setDate(cur.getDate() - 1)
+  }
+  return streak
+}
+ 
+
 export default function DashboardPage() {
   const router = useRouter()
   const pathname = usePathname()
@@ -30,11 +47,13 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [recentSessions, setRecentSessions] = useState<WorkoutSession[]>([])
-  const [stats, setStats] = useState({
-    thisWeek: 0,
-    total: 0,
-    streak: 0
-  })
+  const [stats, setStats] = useState({ thisWeek: 0, total: 0, streak: 0 })
+  const [weighInStreak, setWeighInStreak] = useState(0)
+  const [todayWeighIn, setTodayWeighIn] = useState<boolean>(false)
+ 
+  const today = new Date().toLocaleDateString('en-CA')
+  const currentHour = new Date().getHours()
+  const isMorningWindow = currentHour >= 5 && currentHour < 12
 
   useEffect(() => {
     async function loadProfile() {
@@ -95,14 +114,13 @@ export default function DashboardPage() {
         startOfWeek.setDate(now.getDate() - now.getDay())
         startOfWeek.setHours(0, 0, 0, 0)
         
-        const thisWeek = allSessionsResponse.data.filter((session: { completed_at: string }) => 
+        const thisWeek = allSessionsResponse.data.filter((session: { completed_at: string }) =>
           new Date(session.completed_at) >= startOfWeek
         ).length
 
-        // Calculate streak
         let streak = 0
-        const today = new Date()
-        today.setHours(0, 0, 0, 0)
+        const today2 = new Date()
+        today2.setHours(0, 0, 0, 0)
         
         const dates = allSessionsResponse.data.map((s: { completed_at: string }) => {
           const d = new Date(s.completed_at)
@@ -112,7 +130,7 @@ export default function DashboardPage() {
         
         const uniqueDates = [...new Set(dates)].sort((a: number, b: number) => b - a)
         
-        let currentDate = today.getTime()
+        let currentDate = today2.getTime()
         for (const date of uniqueDates) {
           if (date === currentDate || date === currentDate - 86400000) {
             streak++
@@ -124,6 +142,20 @@ export default function DashboardPage() {
 
         setStats({ thisWeek, total, streak })
       }
+
+      // Fetch weigh-in data (last 60 days)
+      const ago60 = new Date()
+      ago60.setDate(ago60.getDate() - 60)
+      const { data: weighins } = await supabase
+        .from('weigh_ins')
+        .select('logged_date')
+        .eq('user_id', user.id)
+        .gte('logged_date', ago60.toLocaleDateString('en-CA'))
+ 
+      const weighInDates = (weighins ?? []).map((w: { logged_date: string }) => w.logged_date)
+      setWeighInStreak(calcWeighInStreak(weighInDates))
+      setTodayWeighIn(weighInDates.includes(today))
+ 
 
       setLoading(false)
 
@@ -151,7 +183,7 @@ export default function DashboardPage() {
     }
 
     loadProfile()
-  }, [router, supabase, pathname])
+  }, [router, supabase, pathname, today])
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -223,24 +255,12 @@ export default function DashboardPage() {
               <h1 className="text-2xl font-bold text-gray-900">Fitness Coach</h1>
             </div>
             <div className="flex items-center gap-4">
-              <Link
-                href="/dashboard/workouts"
-                className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
-              >
-                Workouts
-              </Link>
-              <Link
-                href="/dashboard/history"
-                className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
-              >
-                History
-              </Link>
-              <Link
-                href="/exercises"
-                className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors"
-              >
-                Exercises
-              </Link>
+                <Link href="/feed" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">Feed</Link>
+              <Link href="/friends" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">Friends</Link>
+              <Link href="/weigh-in" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">Weigh-In</Link>
+              <Link href="/dashboard/workouts" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">Workouts</Link>
+              <Link href="/dashboard/history" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">History</Link>
+              <Link href="/exercises" className="text-sm font-medium text-gray-700 hover:text-blue-600 transition-colors">Exercises</Link>
               <button
                 onClick={handleLogout}
                 className="text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
@@ -253,6 +273,29 @@ export default function DashboardPage() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+         {/* Morning weigh-in banner */}
+        {isMorningWindow && (
+          todayWeighIn ? (
+            <div className="bg-green-50 border border-green-200 rounded-xl px-5 py-4 mb-6 flex items-center gap-3">
+              <span className="text-green-500 text-xl">✓</span>
+              <p className="text-green-800 font-medium text-sm">Weighed in today</p>
+              <Link href="/weigh-in" className="ml-auto text-sm text-green-700 hover:text-green-900 font-medium">Update</Link>
+            </div>
+          ) : (
+            <div className="bg-blue-600 text-white rounded-xl px-5 py-4 mb-6 flex items-center justify-between">
+              <div>
+                <p className="font-bold">Good morning — time to weigh in</p>
+                <p className="text-blue-200 text-sm mt-0.5">Takes 10 seconds. Keep your streak going.</p>
+              </div>
+              <Link
+                href="/weigh-in"
+                className="flex-shrink-0 ml-4 px-4 py-2 bg-white text-blue-600 rounded-lg text-sm font-bold hover:bg-blue-50 transition-colors"
+              >
+                Log Weight
+              </Link>
+            </div>
+          )
+        )}
         {/* Welcome Section */}
         <div className="mb-8">
           <h2 className="text-3xl font-bold text-gray-900 mb-2">
@@ -266,7 +309,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-gray-600">Workouts This Week</h3>
@@ -287,12 +330,24 @@ export default function DashboardPage() {
 
           <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-600">Current Streak</h3>
+              <h3 className="text-sm font-medium text-gray-600">Workout Streak</h3>
               <span className="text-2xl">⚡</span>
             </div>
             <p className="text-3xl font-bold text-gray-900">{stats.streak} days</p>
             <p className="text-sm text-gray-500 mt-1">
               {stats.streak > 0 ? 'Amazing!' : 'Start your streak!'}
+            </p>
+          </div>
+             <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-sm font-medium text-gray-600">Weigh-In Streak</h3>
+              <span className="text-2xl">⚖️</span>
+            </div>
+            <p className="text-3xl font-bold text-gray-900">{weighInStreak} days</p>
+            <p className="text-sm text-gray-500 mt-1">
+              <Link href="/weigh-in" className="text-blue-500 hover:text-blue-600">
+                {todayWeighIn ? 'Logged today ✓' : 'Log today'}
+              </Link>
             </p>
           </div>
         </div>
@@ -368,7 +423,7 @@ export default function DashboardPage() {
                       </div>
                     </div>
                     <Link
-                      href={`/dashboard/history`}
+                        href={`/dashboard/history/${session.id}`}
                       className="text-sm font-medium text-blue-600 hover:text-blue-700"
                     >
                       View Details
