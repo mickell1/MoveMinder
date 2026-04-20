@@ -1,10 +1,25 @@
 -- MoveMinder Phase 2: Social Layer + Weigh-Ins
 -- Run this in your Supabase SQL editor (Dashboard → SQL Editor → New query)
+-- Safe to re-run: drops and recreates everything below.
+
+-- ─────────────────────────────────────────────
+-- 0. Clean slate (drops dependent objects first)
+-- ─────────────────────────────────────────────
+drop view  if exists public.friend_weigh_ins cascade;
+drop table if exists public.session_reactions   cascade;
+drop table if exists public.reminder_preferences cascade;
+drop table if exists public.friend_invites       cascade;
+drop table if exists public.friendships          cascade;
+drop table if exists public.weigh_ins            cascade;
+
+drop function if exists public.decrement_invite_uses(uuid);
+drop function if exists public.handle_new_user_preferences();
+drop trigger if exists on_auth_user_created_preferences on auth.users;
 
 -- ─────────────────────────────────────────────
 -- 1. weigh_ins
 -- ─────────────────────────────────────────────
-create table if not exists public.weigh_ins (
+create table public.weigh_ins (
   id            uuid primary key default gen_random_uuid(),
   user_id       uuid not null references auth.users(id) on delete cascade,
   weight_kg     numeric(6,2) not null check (weight_kg > 0),
@@ -25,7 +40,7 @@ create policy "Users manage their own weigh-ins"
 -- ─────────────────────────────────────────────
 -- 2. friendships
 -- ─────────────────────────────────────────────
-create table if not exists public.friendships (
+create table public.friendships (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid not null references auth.users(id) on delete cascade,
   friend_id   uuid not null references auth.users(id) on delete cascade,
@@ -57,7 +72,7 @@ create policy "Users can delete friendships they are part of"
 -- ─────────────────────────────────────────────
 -- 3. friend_invites
 -- ─────────────────────────────────────────────
-create table if not exists public.friend_invites (
+create table public.friend_invites (
   id              uuid primary key default gen_random_uuid(),
   inviter_id      uuid not null references auth.users(id) on delete cascade,
   token           text not null unique,
@@ -68,7 +83,6 @@ create table if not exists public.friend_invites (
 
 alter table public.friend_invites enable row level security;
 
--- Anyone can read an invite by token (needed for unauthenticated invite pages)
 create policy "Anyone can read invites"
   on public.friend_invites for select
   using (true);
@@ -81,7 +95,6 @@ create policy "Owners can update invites"
   on public.friend_invites for update
   using (auth.uid() = inviter_id);
 
--- Helper function to decrement uses_remaining safely
 create or replace function public.decrement_invite_uses(invite_id uuid)
 returns void
 language plpgsql security definer
@@ -96,7 +109,7 @@ $$;
 -- ─────────────────────────────────────────────
 -- 4. session_reactions
 -- ─────────────────────────────────────────────
-create table if not exists public.session_reactions (
+create table public.session_reactions (
   id          uuid primary key default gen_random_uuid(),
   session_id  uuid not null references public.workout_sessions(id) on delete cascade,
   user_id     uuid not null references auth.users(id) on delete cascade,
@@ -119,7 +132,7 @@ create policy "Users manage their own reactions"
 -- ─────────────────────────────────────────────
 -- 5. reminder_preferences  (auto-created on signup via trigger)
 -- ─────────────────────────────────────────────
-create table if not exists public.reminder_preferences (
+create table public.reminder_preferences (
   user_id             uuid primary key references auth.users(id) on delete cascade,
   morning_reminder    boolean not null default true,
   reminder_hour       integer not null default 8 check (reminder_hour between 0 and 23),
@@ -133,7 +146,6 @@ create policy "Users manage their own reminder preferences"
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
--- Auto-create reminder_preferences row on signup
 create or replace function public.handle_new_user_preferences()
 returns trigger
 language plpgsql security definer
@@ -154,7 +166,7 @@ create trigger on_auth_user_created_preferences
 -- ─────────────────────────────────────────────
 -- 6. friend_weigh_ins  (VIEW — masks weight unless share_weight = true)
 -- ─────────────────────────────────────────────
-create or replace view public.friend_weigh_ins as
+create view public.friend_weigh_ins as
 select
   w.id,
   w.user_id,
@@ -164,6 +176,4 @@ select
   w.share_weight
 from public.weigh_ins w;
 
--- RLS on the underlying weigh_ins table controls access.
--- Grant select on the view to authenticated users:
 grant select on public.friend_weigh_ins to authenticated;
