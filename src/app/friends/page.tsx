@@ -1,6 +1,6 @@
 'use client'
  
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -59,7 +59,7 @@ export default function FriendsPage() {
   const [copied, setCopied] = useState(false)
   const [creatingInvite, setCreatingInvite] = useState(false)
  
-  const load = useCallback(async () => {
+  async function load() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
     setUserId(user.id)
@@ -145,9 +145,13 @@ export default function FriendsPage() {
       }))
     )
     setLoading(false)
-  }, [supabase, router])
- 
-  useEffect(() => { load() }, [load])
+  }
+
+  useEffect(() => {
+    async function init() { await load() }
+    init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
  
   async function createInvite() {
     if (!userId) return

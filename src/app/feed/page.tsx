@@ -1,6 +1,6 @@
 'use client'
  
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -113,7 +113,7 @@ export default function FeedPage() {
   const [feedItems, setFeedItems] = useState<FeedItem[]>([])
   const [currentUserId, setCurrentUserId] = useState<string>('')
  
-  const load = useCallback(async () => {
+  async function load() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
     setCurrentUserId(user.id)
@@ -217,9 +217,13 @@ export default function FeedPage() {
  
     setFeedItems(all)
     setLoading(false)
-  }, [supabase, router])
- 
-  useEffect(() => { load() }, [load])
+  }
+
+  useEffect(() => {
+    async function init() { await load() }
+    init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
  
   if (loading) {
     return (

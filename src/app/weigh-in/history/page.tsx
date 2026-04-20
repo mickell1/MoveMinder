@@ -1,6 +1,6 @@
 'use client'
  
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
@@ -94,7 +94,7 @@ export default function WeighInHistoryPage() {
   const [editNotes, setEditNotes] = useState('')
   const [editShare, setEditShare] = useState(false)
  
-  const load = useCallback(async () => {
+  async function load() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
  
@@ -107,9 +107,13 @@ export default function WeighInHistoryPage() {
  
     setEntries((data ?? []) as WeighIn[])
     setLoading(false)
-  }, [supabase, router])
- 
-  useEffect(() => { load() }, [load])
+  }
+
+  useEffect(() => {
+    async function init() { await load() }
+    init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
  
   function displayWeight(kg: number) {
     return unit === 'kg' ? `${Math.round(kg * 10) / 10} kg` : `${Math.round(kg * 2.20462 * 10) / 10} lb`
