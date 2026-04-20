@@ -460,7 +460,7 @@ export default function DashboardPage() {
         {/* Quick Actions */}
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 mb-8">
           <h3 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Link
               href="/dashboard/workouts/new"
               className="p-6 border-2 border-dashed border-gray-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all group"
@@ -468,6 +468,19 @@ export default function DashboardPage() {
               <div className="text-3xl mb-2">➕</div>
               <h4 className="font-semibold text-gray-900 mb-1 group-hover:text-blue-600">Create Workout</h4>
               <p className="text-sm text-gray-600">Build a custom workout routine</p>
+            </Link>
+
+            <Link
+              href="/weigh-in"
+              className="p-6 border-2 border-dashed border-gray-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all group"
+            >
+              <div className="text-3xl mb-2">⚖️</div>
+              <h4 className="font-semibold text-gray-900 mb-1 group-hover:text-blue-600">
+                {todayWeighIn ? 'Update Weigh-In' : 'Log Weigh-In'}
+              </h4>
+              <p className="text-sm text-gray-600">
+                {todayWeighIn ? 'Already logged today ✓' : 'Track your daily weight'}
+              </p>
             </Link>
 
             <Link
