@@ -126,7 +126,19 @@ export default function InvitePage() {
  
     // Decrement uses_remaining
     await supabase.rpc('decrement_invite_uses', { invite_id: state.inviteId }).maybeSingle()
- 
+
+    // Redirect to onboarding if the user hasn't set their name yet (skipped via invite)
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('full_name, fitness_level')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (!profile?.full_name || !profile?.fitness_level) {
+      router.push('/onboarding?redirect=/feed')
+      return
+    }
+
     setState({ status: 'done' })
   }
  
