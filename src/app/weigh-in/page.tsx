@@ -32,28 +32,37 @@ export default function WeighInPage() {
  
   useEffect(() => {
     async function init() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
-      setUserId(user.id)
- 
-      const { data } = await supabase
-        .from('weigh_ins')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('logged_date', today)
-        .maybeSingle()
- 
-      if (data) {
-        setExistingEntry(data as WeighIn)
-        const displayWeight = unit === 'kg'
-          ? data.weight_kg
-          : Math.round(data.weight_kg * 2.20462 * 10) / 10
-        setWeightInput(String(displayWeight))
-        setNotes(data.notes ?? '')
-        setShareWeight(data.share_weight)
+      try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser()
+        if (authError) throw authError
+        if (!user) { router.push('/login'); return }
+        setUserId(user.id)
+
+        const { data, error: fetchError } = await supabase
+          .from('weigh_ins')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('logged_date', today)
+          .maybeSingle()
+
+        if (fetchError) throw fetchError
+
+        if (data) {
+          setExistingEntry(data as WeighIn)
+          const displayWeight = unit === 'kg'
+            ? data.weight_kg
+            : Math.round(data.weight_kg * 2.20462 * 10) / 10
+          setWeightInput(String(displayWeight))
+          setNotes(data.notes ?? '')
+          setShareWeight(data.share_weight)
+        }
+
+        setLoading(false)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setError(`Failed to load: ${msg}. Try refreshing or disabling browser extensions.`)
+        setLoading(false)
       }
- 
-      setLoading(false)
     }
     init()
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -84,31 +93,37 @@ export default function WeighInPage() {
  
     setSaving(true)
     setError(null)
- 
+
     const weightKg = unit === 'kg' ? parsed : parsed / 2.20462
- 
-    let err = null
-    if (existingEntry) {
-      const { error: e } = await supabase
-        .from('weigh_ins')
-        .update({ weight_kg: weightKg, notes: notes || null, share_weight: shareWeight })
-        .eq('id', existingEntry.id)
-      err = e
-    } else {
-      const { error: e } = await supabase
-        .from('weigh_ins')
-        .insert({ user_id: userId, weight_kg: weightKg, logged_date: today, notes: notes || null, share_weight: shareWeight })
-      err = e
-    }
- 
-    if (err) {
-      setError(err.message)
+
+    try {
+      let err = null
+      if (existingEntry) {
+        const { error: e } = await supabase
+          .from('weigh_ins')
+          .update({ weight_kg: weightKg, notes: notes || null, share_weight: shareWeight })
+          .eq('id', existingEntry.id)
+        err = e
+      } else {
+        const { error: e } = await supabase
+          .from('weigh_ins')
+          .insert({ user_id: userId, weight_kg: weightKg, logged_date: today, notes: notes || null, share_weight: shareWeight })
+        err = e
+      }
+
+      if (err) {
+        setError(err.message)
+        setSaving(false)
+        return
+      }
+
+      setSuccess(true)
       setSaving(false)
-      return
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`Save failed: ${msg}. Try disabling browser extensions (e.g. AdBlock) and retry.`)
+      setSaving(false)
     }
- 
-    setSuccess(true)
-    setSaving(false)
   }
  
   if (loading) {
