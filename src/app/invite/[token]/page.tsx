@@ -185,7 +185,7 @@ export default function InvitePage() {
             <h2 className="text-2xl font-bold text-gray-900 mb-2">
               <InviterName name={state.inviterName} /> wants to connect
             </h2>
-            <p className="text-gray-600 mb-6">Accept to see each other's workouts and weigh-ins in your feed.</p>
+            <p className="text-gray-600 mb-6">Accept to see each other&apos;s workouts and weigh-ins in your feed.</p>
             <button
               onClick={acceptInvite}
               className="w-full px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
