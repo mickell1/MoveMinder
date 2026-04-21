@@ -95,7 +95,7 @@ export default function WorkoutPage() {
       setExercises(flat)
 
       const logs: SetLog[] = []
-      flat.forEach(ex => { for (let i = 1; i <= ex.sets; i++) logs.push({ workoutExerciseId: ex.id, exerciseId: ex.exercise_id, setNumber: i, reps: ex.reps, weight: 0, completed: false }) })
+      flat.forEach(ex => { for (let i = 1; i <= ex.sets; i++) logs.push({ workoutExerciseId: ex.id, exerciseId: ex.exercise_id, setNumber: i, reps: 0, weight: 0, completed: false }) })
       setSetLogs(logs)
       setLoading(false)
     }
@@ -317,9 +317,9 @@ export default function WorkoutPage() {
                   <div key={log.setNumber}
                     className={`grid grid-cols-[28px_1fr_1fr_40px] gap-2 items-center p-2 rounded-xl transition-colors ${log.completed ? 'bg-green-50' : 'bg-gray-50'}`}>
                     <span className={`text-sm font-bold text-center ${log.completed ? 'text-green-600' : 'text-gray-400'}`}>{log.setNumber}</span>
-                    <input type="number" min="0" value={log.reps}
+                    <input type="number" min="0" value={log.reps || ''}
                       onChange={e => updateSet(log.workoutExerciseId, log.setNumber, 'reps', parseInt(e.target.value) || 0)}
-                      placeholder="Reps"
+                      placeholder={String(currentEx.reps)}
                       className="w-full px-2 py-2 text-sm font-semibold text-center border border-gray-200 rounded-lg focus:border-blue-400 focus:outline-none bg-white"
                     />
                     <input type="number" min="0" step="2.5" value={log.weight || ''}

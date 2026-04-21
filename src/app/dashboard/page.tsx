@@ -153,8 +153,8 @@ export default function DashboardPage() {
         const [friendSessRes, friendWeighInsRes, friendProfs] = await Promise.all([
           supabase.from('workout_sessions').select('user_id, completed_at, workouts(name)')
             .in('user_id', friendIds).order('completed_at', { ascending: false }).limit(6),
-          supabase.from('weigh_ins').select('user_id, logged_date, weight_kg')
-            .in('user_id', friendIds).eq('share_weight', true)
+          supabase.from('friend_weigh_ins').select('user_id, logged_date, weight_kg')
+            .in('user_id', friendIds)
             .order('logged_date', { ascending: false }).limit(6),
           supabase.from('profiles').select('id, full_name').in('id', friendIds),
         ])
