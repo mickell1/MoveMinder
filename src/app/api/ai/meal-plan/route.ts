@@ -88,7 +88,8 @@ Respond ONLY with valid JSON, no markdown, no explanation:
     messages: [{ role: 'user', content: prompt }],
   })
 
-  const raw = (message.content[0] as { type: string; text: string }).text.trim()
+  const rawText = (message.content[0] as { type: string; text: string }).text.trim()
+  const raw = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
   let plan: object
   try {
     plan = JSON.parse(raw)

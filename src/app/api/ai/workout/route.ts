@@ -109,7 +109,9 @@ ${type === 'single' ? `{
       messages: [{ role: 'user', content: prompt }],
     })
 
-    const raw = (message.content[0] as { type: string; text: string }).text.trim()
+    const rawText = (message.content[0] as { type: string; text: string }).text.trim()
+    // Strip markdown code fences if Claude included them despite instructions
+    const raw = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
     let parsed: { workouts: Array<{ name: string; description: string; week?: number; day?: number; exercises: Array<{ name: string; muscle_group?: string; sets: number; reps: number; rest_seconds: number; notes?: string }> }> }
     try {
       parsed = JSON.parse(raw)
