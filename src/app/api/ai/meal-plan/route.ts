@@ -4,6 +4,7 @@ import { anthropic, AI_MODEL } from '@/src/lib/ai/client'
 import { buildUserSummary, UserAIContext } from '@/src/lib/ai/context'
 
 export async function POST(req: NextRequest) {
+  try {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -95,5 +96,10 @@ Respond ONLY with valid JSON, no markdown, no explanation:
     return NextResponse.json({ error: 'AI returned invalid JSON', raw }, { status: 500 })
   }
 
-  return NextResponse.json({ plan })
+    return NextResponse.json({ plan })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    console.error('AI meal-plan route error:', message)
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }
