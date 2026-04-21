@@ -161,10 +161,10 @@ export default function WorkoutPage() {
 
     const setsToSave = setLogs
       .filter(l => l.completed || l.reps > 0)
-      .filter(l => l.exerciseId)  // guard: skip rows missing FK
+      .filter(l => l.workoutExerciseId)
       .map(l => ({
         session_id: session.id,
-        exercise_id: l.exerciseId,
+        exercise_id: l.workoutExerciseId,  // FK points to workout_exercises.id, not exercises.id
         set_number: l.setNumber,
         reps: l.reps,
         weight: l.weight,
