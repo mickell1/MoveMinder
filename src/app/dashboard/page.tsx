@@ -167,7 +167,7 @@ export default function DashboardPage() {
 
         const weighInItems: FeedItem[] = (friendWeighInsRes.data ?? []).map(w => ({
           userName: pMap.get(w.user_id) ?? null,
-          action: `logged ${w.weight_kg} kg`,
+          action: w.weight_kg !== null ? `logged ${w.weight_kg} kg` : 'weighed in',
           time: `${w.logged_date}T00:00:00`,
         }))
 

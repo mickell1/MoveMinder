@@ -159,10 +159,10 @@ export default function WorkoutPage() {
 
     if (sErr || !session) { alert('Failed to save workout'); setSaving(false); return }
 
-    const completedSets = setLogs.filter(l => l.completed).map(l => ({
+    const setsToSave = setLogs.filter(l => l.completed || l.reps > 0).map(l => ({
       session_id: session.id, exercise_id: l.exerciseId, set_number: l.setNumber, reps: l.reps, weight: l.weight,
     }))
-    if (completedSets.length > 0) await supabase.from('workout_sets').insert(completedSets)
+    if (setsToSave.length > 0) await supabase.from('workout_sets').insert(setsToSave)
 
     // Milestone check
     const { count: total } = await supabase.from('workout_sessions').select('id', { count: 'exact', head: true }).eq('user_id', user.id)
