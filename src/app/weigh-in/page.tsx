@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { AppHeader } from '@/src/components/AppHeader'
  
 type WeighIn = {
   id: string
@@ -190,21 +191,17 @@ export default function WeighInPage() {
  
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <Link href="/dashboard" className="text-gray-600 hover:text-gray-900 text-sm">← Dashboard</Link>
-              <h1 className="text-xl font-bold text-gray-900">Daily Weigh-In</h1>
-            </div>
-            <Link href="/weigh-in/history" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-              History
-            </Link>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        title="Weigh-In"
+        links={[
+          { href: '/feed', label: 'Social' },
+          { href: '/weigh-in/history', label: 'History' },
+          { href: '/dashboard/workouts', label: 'Workouts' },
+          { href: '/progress', label: 'Progress' },
+        ]}
+      />
  
-      <main className="max-w-lg mx-auto px-4 py-8">
+      <main className="max-w-lg mx-auto px-4 py-6">
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <div className="text-center mb-6">
             <div className="text-5xl mb-3">⚖️</div>

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { AppHeader } from '@/src/components/AppHeader'
  
 type WeighIn = {
   id: string
@@ -157,36 +158,28 @@ export default function WeighInHistoryPage() {
  
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <Link href="/weigh-in" className="text-gray-600 hover:text-gray-900 text-sm">←</Link>
-              <h1 className="text-xl font-bold text-gray-900">Weight History</h1>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="flex bg-gray-100 rounded-lg p-1">
-                {(['kg', 'lb'] as const).map(u => (
-                  <button
-                    key={u}
-                    onClick={() => setUnit(u)}
-                    className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
-                      unit === u ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'
-                    }`}
-                  >
-                    {u}
-                  </button>
-                ))}
-              </div>
-              <Link href="/weigh-in" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                Log Weight
-              </Link>
-            </div>
-          </div>
+      <AppHeader
+        title="Weight History"
+        links={[
+          { href: '/weigh-in', label: 'Weigh-In' },
+          { href: '/feed', label: 'Social' },
+          { href: '/dashboard/workouts', label: 'Workouts' },
+          { href: '/progress', label: 'Progress' },
+        ]}
+      />
+      <div className="flex justify-between items-center px-4 pt-4 max-w-2xl mx-auto">
+        <div className="flex bg-gray-100 rounded-lg p-1">
+          {(['kg', 'lb'] as const).map(u => (
+            <button key={u} onClick={() => setUnit(u)}
+              className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${unit === u ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}>
+              {u}
+            </button>
+          ))}
         </div>
-      </header>
- 
-      <main className="max-w-2xl mx-auto px-4 py-8">
+        <Link href="/weigh-in" className="text-sm text-blue-600 font-medium">+ Log Weight</Link>
+      </div>
+
+      <main className="max-w-2xl mx-auto px-4 py-4">
         {entries.length === 0 ? (
           <div className="bg-white rounded-xl shadow-sm p-8 border border-gray-200 text-center">
             <div className="text-5xl mb-4">⚖️</div>

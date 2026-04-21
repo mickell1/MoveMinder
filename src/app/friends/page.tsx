@@ -249,9 +249,9 @@ export default function FriendsPage() {
       <AppHeader
         title="Friends"
         links={[
-          { href: '/feed',      label: 'Feed' },
-          { href: '/weigh-in',  label: 'Weigh-In' },
-          { href: '/dashboard', label: 'Dashboard' },
+          { href: '/feed',                 label: 'Feed' },
+          { href: '/weigh-in',             label: 'Weigh-In' },
+          { href: '/dashboard/workouts',   label: 'Workouts' },
         ]}
       />
 

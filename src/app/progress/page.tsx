@@ -210,8 +210,9 @@ export default function ProgressPage() {
       <AppHeader
         title="My Progress"
         links={[
-          { href: '/dashboard', label: 'Dashboard' },
-          { href: '/feed', label: 'Feed' },
+          { href: '/feed', label: 'Social' },
+          { href: '/weigh-in', label: 'Weigh-In' },
+          { href: '/dashboard/workouts', label: 'Workouts' },
         ]}
       />
 

@@ -284,7 +284,7 @@ export default function FeedPage() {
         links={[
           { href: '/friends', label: 'Friends' },
           { href: '/weigh-in', label: 'Weigh-In' },
-          { href: '/dashboard', label: 'Dashboard' },
+          { href: '/dashboard/workouts', label: 'Workouts' },
         ]}
       />
  
