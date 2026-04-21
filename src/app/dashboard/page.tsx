@@ -239,6 +239,7 @@ export default function DashboardPage() {
           { href: '/weigh-in', label: 'Weigh-In' },
           { href: '/dashboard/workouts', label: 'Workouts' },
           { href: '/progress', label: 'Progress' },
+          { href: '/ai', label: 'AI Coach' },
         ]}
         onLogout={handleLogout}
       />
