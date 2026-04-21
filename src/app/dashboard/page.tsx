@@ -145,21 +145,37 @@ export default function DashboardPage() {
         setPendingRequests(pending.map(p => ({ friendshipId: p.id, name: pMap.get(p.user_id) ?? null })))
       }
 
-      // Feed preview — friends' recent activity
+      // Feed preview — friends' recent activity (workouts + shared weigh-ins)
       const { data: ships } = await supabase.from('friendships')
         .select('user_id, friend_id').or(`user_id.eq.${user.id},friend_id.eq.${user.id}`).eq('status', 'accepted')
       const friendIds = (ships ?? []).map(f => f.user_id === user.id ? f.friend_id : f.user_id)
       if (friendIds.length > 0) {
-        const [friendSess, friendProfs] = await Promise.all([
+        const [friendSessRes, friendWeighInsRes, friendProfs] = await Promise.all([
           supabase.from('workout_sessions').select('user_id, completed_at, workouts(name)')
-            .in('user_id', friendIds).order('completed_at', { ascending: false }).limit(4),
+            .in('user_id', friendIds).order('completed_at', { ascending: false }).limit(6),
+          supabase.from('weigh_ins').select('user_id, logged_date, weight_kg')
+            .in('user_id', friendIds).eq('share_weight', true)
+            .order('logged_date', { ascending: false }).limit(6),
           supabase.from('profiles').select('id, full_name').in('id', friendIds),
         ])
         const pMap = new Map((friendProfs.data ?? []).map(p => [p.id, p.full_name as string | null]))
-        setFeedPreview((friendSess.data ?? []).map(s => {
+
+        const workoutItems: FeedItem[] = (friendSessRes.data ?? []).map(s => {
           const name = Array.isArray(s.workouts) ? (s.workouts[0]?.name ?? 'a workout') : ((s.workouts as {name:string}|null)?.name ?? 'a workout')
           return { userName: pMap.get(s.user_id) ?? null, action: `completed ${name}`, time: s.completed_at }
+        })
+
+        const weighInItems: FeedItem[] = (friendWeighInsRes.data ?? []).map(w => ({
+          userName: pMap.get(w.user_id) ?? null,
+          action: `logged ${w.weight_kg} kg`,
+          time: `${w.logged_date}T00:00:00`,
         }))
+
+        const combined = [...workoutItems, ...weighInItems]
+          .sort((a, b) => b.time.localeCompare(a.time))
+          .slice(0, 4)
+
+        setFeedPreview(combined)
       }
 
       setLoading(false)
