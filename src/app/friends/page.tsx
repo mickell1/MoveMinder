@@ -246,14 +246,7 @@ export default function FriendsPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AppHeader
-        title="Friends"
-        links={[
-          { href: '/feed',                 label: 'Feed' },
-          { href: '/weigh-in',             label: 'Weigh-In' },
-          { href: '/dashboard/workouts',   label: 'Workouts' },
-        ]}
-      />
+      <AppHeader title="MoveMinder" />
 
       <main className="max-w-2xl mx-auto px-4 py-8">
         {/* Invite card */}

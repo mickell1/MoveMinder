@@ -11,15 +11,24 @@ interface NavLink {
 }
 
 interface Props {
-  title: string
-  links: NavLink[]
+  title?: string
+  links?: NavLink[]
   onLogout?: () => void
 }
 
-export function AppHeader({ title, links, onLogout }: Props) {
+const GLOBAL_NAV: NavLink[] = [
+  { href: '/feed',                 label: 'Social' },
+  { href: '/dashboard/workouts',   label: 'Workouts' },
+  { href: '/weigh-in',             label: 'Weigh-In' },
+  { href: '/ai',                   label: 'AI Coach' },
+]
+
+export function AppHeader({ title = 'MoveMinder', links, onLogout }: Props) {
   const [open, setOpen] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
   const pathname = usePathname()
+
+  const navLinks = links ?? GLOBAL_NAV
 
   useEffect(() => {
     const supabase = createClient()
@@ -36,7 +45,6 @@ export function AppHeader({ title, links, onLogout }: Props) {
     fetchPending()
   }, [])
 
-  // Close menu on route change
   useEffect(() => { setOpen(false) }, [pathname])
 
   function renderLink(l: NavLink, mobile = false) {
@@ -70,15 +78,15 @@ export function AppHeader({ title, links, onLogout }: Props) {
     <header className="bg-white border-b sticky top-0 z-50 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14 sm:h-16">
-          {/* Logo — always navigates home */}
-          <Link href="/dashboard" className="flex items-center gap-2 flex-shrink-0" aria-label="Home">
+          {/* Logo — always navigates to dashboard */}
+          <Link href="/dashboard" className="flex items-center gap-2 flex-shrink-0" aria-label="Dashboard">
             <span className="text-2xl">💪</span>
             <span className="text-base sm:text-lg font-bold text-gray-900 truncate max-w-[140px] sm:max-w-none">{title}</span>
           </Link>
 
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-1 flex-shrink-0">
-            {links.map(l => renderLink(l))}
+            {navLinks.map(l => renderLink(l))}
             {onLogout && (
               <button
                 onClick={onLogout}
@@ -113,7 +121,7 @@ export function AppHeader({ title, links, onLogout }: Props) {
         {/* Mobile dropdown */}
         {open && (
           <nav className="md:hidden pb-3 pt-2 border-t border-gray-100 flex flex-col gap-1">
-            {links.map(l => renderLink(l, true))}
+            {navLinks.map(l => renderLink(l, true))}
             {onLogout && (
               <button
                 onClick={() => { setOpen(false); onLogout() }}

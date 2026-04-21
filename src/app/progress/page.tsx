@@ -207,14 +207,7 @@ export default function ProgressPage() {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
-      <AppHeader
-        title="My Progress"
-        links={[
-          { href: '/feed', label: 'Social' },
-          { href: '/weigh-in', label: 'Weigh-In' },
-          { href: '/dashboard/workouts', label: 'Workouts' },
-        ]}
-      />
+      <AppHeader title="MoveMinder" />
 
       <main className="flex items-center justify-center px-4 py-12">
         <div className="w-full max-w-sm bg-white rounded-2xl shadow-xl p-8">

@@ -191,15 +191,7 @@ export default function WeighInPage() {
  
   return (
     <div className="min-h-screen bg-gray-50">
-      <AppHeader
-        title="Weigh-In"
-        links={[
-          { href: '/feed', label: 'Social' },
-          { href: '/weigh-in/history', label: 'History' },
-          { href: '/dashboard/workouts', label: 'Workouts' },
-          { href: '/progress', label: 'Progress' },
-        ]}
-      />
+      <AppHeader title="MoveMinder" />
  
       <main className="max-w-lg mx-auto px-4 py-6">
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">

@@ -158,15 +158,7 @@ export default function WeighInHistoryPage() {
  
   return (
     <div className="min-h-screen bg-gray-50">
-      <AppHeader
-        title="Weight History"
-        links={[
-          { href: '/weigh-in', label: 'Weigh-In' },
-          { href: '/feed', label: 'Social' },
-          { href: '/dashboard/workouts', label: 'Workouts' },
-          { href: '/progress', label: 'Progress' },
-        ]}
-      />
+      <AppHeader title="MoveMinder" />
       <div className="flex justify-between items-center px-4 pt-4 max-w-2xl mx-auto">
         <div className="flex bg-gray-100 rounded-lg p-1">
           {(['kg', 'lb'] as const).map(u => (

@@ -279,14 +279,7 @@ export default function FeedPage() {
  
   return (
     <div className="min-h-screen bg-gray-50">
-      <AppHeader
-        title="Feed"
-        links={[
-          { href: '/friends', label: 'Friends' },
-          { href: '/weigh-in', label: 'Weigh-In' },
-          { href: '/dashboard/workouts', label: 'Workouts' },
-        ]}
-      />
+      <AppHeader title="MoveMinder" />
  
       <main className="max-w-xl mx-auto px-4 py-8">
         {feedItems.length === 0 ? (

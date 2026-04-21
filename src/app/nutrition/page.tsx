@@ -33,7 +33,7 @@ export default function NutritionPage() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <AppHeader title="MoveMinder" links={[{ href: '/ai', label: 'AI Coach' }, { href: '/dashboard', label: 'Dashboard' }]} />
+      <AppHeader title="MoveMinder" />
 
       <main className="max-w-xl mx-auto px-4 py-8 space-y-6">
         <div>
