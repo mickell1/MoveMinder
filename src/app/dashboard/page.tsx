@@ -2,10 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
-import { useRouter, usePathname } from 'next/navigation'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AppHeader } from '@/src/components/AppHeader'
-import type { User } from '@supabase/supabase-js'
 
 type Profile = {
   full_name: string | null
@@ -19,14 +18,18 @@ type WorkoutSession = {
   workout_id: string
   completed_at: string
   duration_minutes: number
-  workouts: {
-    name: string
-  }[] | null
+  workouts: { name: string }[] | null
 }
 
 type WeighIn = {
   logged_date: string
   weight_kg: number
+}
+
+type FeedItem = {
+  userName: string | null
+  action: string
+  time: string
 }
 
 function WeightSparkline({ entries }: { entries: WeighIn[] }) {
@@ -36,7 +39,7 @@ function WeightSparkline({ entries }: { entries: WeighIn[] }) {
   const min = Math.min(...weights)
   const max = Math.max(...weights)
   const range = max - min || 1
-  const W = 160, H = 48, pad = 4
+  const W = 120, H = 40, pad = 4
   const pts = weights.map((w, i) => {
     const x = pad + (i / (weights.length - 1)) * (W - pad * 2)
     const y = pad + ((max - w) / range) * (H - pad * 2)
@@ -44,18 +47,9 @@ function WeightSparkline({ entries }: { entries: WeighIn[] }) {
   })
   return (
     <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} className="overflow-visible">
-      <polyline
-        points={pts.join(' ')}
-        fill="none"
-        stroke="#3b82f6"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      {pts.slice(-1).map(pt => {
-        const [x, y] = pt.split(',').map(Number)
-        return <circle key="dot" cx={x} cy={y} r={3} fill="#3b82f6" />
-      })}
+      <polyline points={pts.join(' ')} fill="none" stroke="#3b82f6" strokeWidth="2"
+        strokeLinecap="round" strokeLinejoin="round" />
+      {(() => { const [x, y] = pts[pts.length - 1].split(',').map(Number); return <circle cx={x} cy={y} r={3} fill="#3b82f6" /> })()}
     </svg>
   )
 }
@@ -66,327 +60,202 @@ function calcWeighInStreak(dates: string[]): number {
   let streak = 0
   const cur = new Date()
   cur.setHours(0, 0, 0, 0)
-  if (!set.has(cur.toLocaleDateString('en-CA'))) {
-    cur.setDate(cur.getDate() - 1)
-  }
-  while (set.has(cur.toLocaleDateString('en-CA'))) {
-    streak++
-    cur.setDate(cur.getDate() - 1)
-  }
+  if (!set.has(cur.toLocaleDateString('en-CA'))) cur.setDate(cur.getDate() - 1)
+  while (set.has(cur.toLocaleDateString('en-CA'))) { streak++; cur.setDate(cur.getDate() - 1) }
   return streak
 }
- 
+
+function relTime(iso: string) {
+  const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 60000)
+  if (diff < 60) return diff <= 1 ? 'just now' : `${diff}m ago`
+  const h = Math.floor(diff / 60)
+  if (h < 24) return `${h}h ago`
+  const d = Math.floor(h / 24)
+  return d === 1 ? 'yesterday' : `${d}d ago`
+}
 
 export default function DashboardPage() {
   const router = useRouter()
-  const pathname = usePathname()
   const supabase = createClient()
+
   const [userId, setUserId] = useState<string | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
   const [recentSessions, setRecentSessions] = useState<WorkoutSession[]>([])
   const [stats, setStats] = useState({ thisWeek: 0, total: 0, streak: 0 })
   const [weighInStreak, setWeighInStreak] = useState(0)
-  const [todayWeighIn, setTodayWeighIn] = useState<boolean>(false)
+  const [todayWeighIn, setTodayWeighIn] = useState(false)
   const [recentWeighIns, setRecentWeighIns] = useState<WeighIn[]>([])
   const [goalWeight, setGoalWeight] = useState<number | null>(null)
   const [editingGoal, setEditingGoal] = useState(false)
   const [goalError, setGoalError] = useState<string | null>(null)
   const [goalInput, setGoalInput] = useState('')
   const [pendingRequests, setPendingRequests] = useState<{ friendshipId: string; name: string | null }[]>([])
- 
+  const [feedPreview, setFeedPreview] = useState<FeedItem[]>([])
+
   const today = new Date().toLocaleDateString('en-CA')
   const currentHour = new Date().getHours()
   const isMorningWindow = currentHour >= 5 && currentHour < 12
 
   useEffect(() => {
-    async function loadProfile() {
-      const { data } = await supabase.auth.getUser()
-      const user = data?.user as User | null
-      
-      if (!user) {
-        router.push('/login')
-        return
-      }
+    async function load() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/login'); return }
       setUserId(user.id)
 
-      const profileResponse = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', user.id)
-        .single()
+      const [profileRes, sessionsRes, allSessionsRes, weighInsRes, pendingRes] = await Promise.all([
+        supabase.from('profiles').select('*').eq('id', user.id).single(),
+        supabase.from('workout_sessions')
+          .select('id, workout_id, completed_at, duration_minutes, workouts(name)')
+          .eq('user_id', user.id).order('completed_at', { ascending: false }).limit(5),
+        supabase.from('workout_sessions').select('completed_at').eq('user_id', user.id),
+        supabase.from('weigh_ins').select('logged_date, weight_kg')
+          .eq('user_id', user.id)
+          .gte('logged_date', (() => { const d = new Date(); d.setDate(d.getDate() - 60); return d.toLocaleDateString('en-CA') })())
+          .order('logged_date', { ascending: false }),
+        supabase.from('friendships').select('id, user_id').eq('friend_id', user.id).eq('status', 'pending'),
+      ])
 
-      if (profileResponse.error) {
-        console.error('Failed to fetch profile:', profileResponse.error)
+      setProfile(profileRes.data ?? null)
+      setGoalWeight(profileRes.data?.goal_weight ?? null)
+      setRecentSessions((sessionsRes.data ?? []) as WorkoutSession[])
+
+      // Stats
+      const allS = allSessionsRes.data ?? []
+      const startOfWeek = new Date(); startOfWeek.setDate(startOfWeek.getDate() - startOfWeek.getDay()); startOfWeek.setHours(0,0,0,0)
+      const thisWeek = allS.filter(s => new Date(s.completed_at) >= startOfWeek).length
+      const dates = [...new Set(allS.map(s => { const d = new Date(s.completed_at); d.setHours(0,0,0,0); return d.getTime() }))].sort((a,b)=>b-a)
+      let streak = 0, cur = new Date(); cur.setHours(0,0,0,0)
+      for (const d of dates) {
+        if (d === cur.getTime() || d === cur.getTime() - 86400000) { streak++; cur = new Date(d - 86400000) } else break
+      }
+      setStats({ thisWeek, total: allS.length, streak })
+
+      // Weigh-ins
+      const wi = (weighInsRes.data ?? []) as WeighIn[]
+      setWeighInStreak(calcWeighInStreak(wi.map(w => w.logged_date)))
+      setTodayWeighIn(wi.some(w => w.logged_date === today))
+      setRecentWeighIns(wi.slice(0, 14))
+
+      // Pending friend requests
+      const pending = pendingRes.data ?? []
+      if (pending.length > 0) {
+        const { data: profs } = await supabase.from('profiles').select('id, full_name').in('id', pending.map(p => p.user_id))
+        const pMap = new Map((profs ?? []).map(p => [p.id, p.full_name as string | null]))
+        setPendingRequests(pending.map(p => ({ friendshipId: p.id, name: pMap.get(p.user_id) ?? null })))
       }
 
-      setProfile(profileResponse.data ?? null)
-      setGoalWeight(profileResponse.data?.goal_weight ?? null)
-
-      // Fetch recent workout sessions
-      const sessionsResponse = await supabase
-        .from('workout_sessions')
-        .select(`
-          id,
-          workout_id,
-          completed_at,
-          duration_minutes,
-          workouts (
-            name
-          )
-        `)
-        .eq('user_id', user.id)
-        .order('completed_at', { ascending: false })
-        .limit(5)
-
-      if (sessionsResponse.data) {
-        setRecentSessions(sessionsResponse.data as WorkoutSession[])
-      }
-
-      // Calculate stats
-      const allSessionsResponse = await supabase
-        .from('workout_sessions')
-        .select('completed_at')
-        .eq('user_id', user.id)
-        .order('completed_at', { ascending: false })
-
-      if (allSessionsResponse.data) {
-        // Total workouts
-        const total = allSessionsResponse.data.length
-
-        // Workouts this week
-        const now = new Date()
-        const startOfWeek = new Date(now)
-        startOfWeek.setDate(now.getDate() - now.getDay())
-        startOfWeek.setHours(0, 0, 0, 0)
-        
-        const thisWeek = allSessionsResponse.data.filter((session: { completed_at: string }) =>
-          new Date(session.completed_at) >= startOfWeek
-        ).length
-
-        let streak = 0
-        const today2 = new Date()
-        today2.setHours(0, 0, 0, 0)
-        
-        const dates = allSessionsResponse.data.map((s: { completed_at: string }) => {
-          const d = new Date(s.completed_at)
-          d.setHours(0, 0, 0, 0)
-          return d.getTime()
-        })
-        
-        const uniqueDates = [...new Set(dates)].sort((a: number, b: number) => b - a)
-        
-        let currentDate = today2.getTime()
-        for (const date of uniqueDates) {
-          if (date === currentDate || date === currentDate - 86400000) {
-            streak++
-            currentDate = date - 86400000
-          } else {
-            break
-          }
-        }
-
-        setStats({ thisWeek, total, streak })
-      }
-
-      // Fetch weigh-in data (last 60 days)
-      const ago60 = new Date()
-      ago60.setDate(ago60.getDate() - 60)
-      const { data: weighins } = await supabase
-        .from('weigh_ins')
-        .select('logged_date, weight_kg')
-        .eq('user_id', user.id)
-        .gte('logged_date', ago60.toLocaleDateString('en-CA'))
-        .order('logged_date', { ascending: false })
-
-      const allWeighIns = (weighins ?? []) as WeighIn[]
-      const weighInDates = allWeighIns.map(w => w.logged_date)
-      setWeighInStreak(calcWeighInStreak(weighInDates))
-      setTodayWeighIn(weighInDates.includes(today))
-      setRecentWeighIns(allWeighIns.slice(0, 14))
-
-      // Fetch pending friend requests
-      const { data: pending } = await supabase
-        .from('friendships')
-        .select('id, user_id')
-        .eq('friend_id', user.id)
-        .eq('status', 'pending')
-
-      if (pending && pending.length > 0) {
-        const requesterIds = pending.map(p => p.user_id)
-        const { data: profiles } = await supabase
-          .from('profiles')
-          .select('id, full_name')
-          .in('id', requesterIds)
-        const profileMap = new Map((profiles ?? []).map(p => [p.id, p.full_name as string | null]))
-        setPendingRequests(pending.map(p => ({ friendshipId: p.id, name: profileMap.get(p.user_id) ?? null })))
-      } else {
-        setPendingRequests([])
+      // Feed preview — friends' recent activity
+      const { data: ships } = await supabase.from('friendships')
+        .select('user_id, friend_id').or(`user_id.eq.${user.id},friend_id.eq.${user.id}`).eq('status', 'accepted')
+      const friendIds = (ships ?? []).map(f => f.user_id === user.id ? f.friend_id : f.user_id)
+      if (friendIds.length > 0) {
+        const [friendSess, friendProfs] = await Promise.all([
+          supabase.from('workout_sessions').select('user_id, completed_at, workouts(name)')
+            .in('user_id', friendIds).order('completed_at', { ascending: false }).limit(4),
+          supabase.from('profiles').select('id, full_name').in('id', friendIds),
+        ])
+        const pMap = new Map((friendProfs.data ?? []).map(p => [p.id, p.full_name as string | null]))
+        setFeedPreview((friendSess.data ?? []).map(s => {
+          const name = Array.isArray(s.workouts) ? (s.workouts[0]?.name ?? 'a workout') : ((s.workouts as {name:string}|null)?.name ?? 'a workout')
+          return { userName: pMap.get(s.user_id) ?? null, action: `completed ${name}`, time: s.completed_at }
+        }))
       }
 
       setLoading(false)
-
-      // Redirect to onboarding if not completed
-      const hasFitness = !!profileResponse.data?.fitness_level
-      let hasGoals = false
-      const goalsRaw = profileResponse.data?.goals
-
-      if (Array.isArray(goalsRaw)) {
-        hasGoals = (goalsRaw as unknown[]).length > 0
-      } else if (typeof goalsRaw === 'string') {
-        try {
-          const parsed = JSON.parse(goalsRaw as string)
-          hasGoals = Array.isArray(parsed) ? parsed.length > 0 : !!parsed
-        } catch {
-          hasGoals = (goalsRaw as string).trim().length > 0
-        }
-      } else {
-        hasGoals = !!goalsRaw
-      }
-
-      if (pathname?.startsWith('/dashboard') && (!hasFitness || !hasGoals)) {
-        router.push('/onboarding')
-      }
     }
+    load()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-    loadProfile()
-  }, [router, supabase, pathname, today])
-
-  async function acceptRequest(friendshipId: string) {
-    await supabase.from('friendships').update({ status: 'accepted', accepted_at: new Date().toISOString() }).eq('id', friendshipId)
-    setPendingRequests(prev => prev.filter(r => r.friendshipId !== friendshipId))
+  async function acceptRequest(id: string) {
+    await supabase.from('friendships').update({ status: 'accepted', accepted_at: new Date().toISOString() }).eq('id', id)
+    setPendingRequests(p => p.filter(r => r.friendshipId !== id))
   }
-
-  async function rejectRequest(friendshipId: string) {
-    await supabase.from('friendships').delete().eq('id', friendshipId)
-    setPendingRequests(prev => prev.filter(r => r.friendshipId !== friendshipId))
+  async function rejectRequest(id: string) {
+    await supabase.from('friendships').delete().eq('id', id)
+    setPendingRequests(p => p.filter(r => r.friendshipId !== id))
   }
-
   async function saveGoal() {
     const val = parseFloat(goalInput)
     if (isNaN(val) || val <= 0 || !userId) return
     setGoalError(null)
-    const { error } = await supabase
-      .from('profiles')
-      .upsert({ id: userId, goal_weight: val }, { onConflict: 'id' })
-    if (error) {
-      setGoalError(error.message)
-      console.error('saveGoal error:', error)
-      return
-    }
-    setGoalWeight(val)
-    setEditingGoal(false)
+    const { error } = await supabase.from('profiles').upsert({ id: userId, goal_weight: val }, { onConflict: 'id' })
+    if (error) { setGoalError(error.message); return }
+    setGoalWeight(val); setEditingGoal(false)
   }
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
-  }
+  const handleLogout = async () => { await supabase.auth.signOut(); router.push('/login'); router.refresh() }
 
   const goalLabels: Record<string, string> = {
-    lose_weight: 'Lose Weight 🔥',
-    build_muscle: 'Build Muscle 💪',
-    get_fit: 'Get Fit ⚡',
-    maintain: 'Stay Healthy 🎯',
+    lose_weight: 'Lose Weight 🔥', build_muscle: 'Build Muscle 💪', get_fit: 'Get Fit ⚡', maintain: 'Stay Healthy 🎯',
   }
-
   const goalDisplay = (() => {
-    const goalsRaw = profile?.goals
-    if (!goalsRaw) return 'Not set'
-    if (Array.isArray(goalsRaw)) {
-      return goalLabels[goalsRaw[0]] ?? goalsRaw[0] ?? 'Not set'
+    const g = profile?.goals
+    if (!g) return null
+    if (Array.isArray(g)) return goalLabels[g[0]] ?? g[0] ?? null
+    if (typeof g === 'string') {
+      try { const p = JSON.parse(g); return goalLabels[Array.isArray(p) ? p[0] : p] ?? (Array.isArray(p) ? p[0] : p) } catch { return goalLabels[g] ?? g }
     }
-    if (typeof goalsRaw === 'string') {
-      try {
-        const parsed = JSON.parse(goalsRaw as string)
-        if (Array.isArray(parsed) && parsed.length) return goalLabels[parsed[0]] ?? parsed[0]
-        if (typeof parsed === 'string') return goalLabels[parsed] ?? parsed
-      } catch {
-        // not JSON, fallthrough
-      }
-      return goalLabels[goalsRaw] ?? goalsRaw
-    }
-    return 'Not set'
+    return null
   })()
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString)
-    const now = new Date()
-    const diffMs = now.getTime() - date.getTime()
-    const diffHours = Math.floor(diffMs / (1000 * 60 * 60))
-    const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
-
-    if (diffHours < 24) {
-      if (diffHours < 1) return 'Just now'
-      return `${diffHours}h ago`
-    } else if (diffDays === 1) {
-      return 'Yesterday'
-    } else if (diffDays < 7) {
-      return `${diffDays} days ago`
-    } else {
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    }
+  const formatDate = (s: string) => {
+    const diff = Math.floor((Date.now() - new Date(s).getTime()) / 3600000)
+    if (diff < 24) return diff < 1 ? 'Just now' : `${diff}h ago`
+    const d = Math.floor(diff / 24)
+    return d === 1 ? 'Yesterday' : `${d}d ago`
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-xl text-gray-600">Loading...</div>
-      </div>
-    )
-  }
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-lg text-gray-600">Loading...</div>
+    </div>
+  )
+
+  const name = profile?.full_name?.split(' ')[0] ?? 'Your'
 
   return (
     <div className="min-h-screen bg-gray-50">
       <AppHeader
-        title="Fitness Coach"
+        title="MoveMinder"
         links={[
-          { href: '/feed', label: 'Feed' },
-          { href: '/friends', label: 'Friends' },
+          { href: '/feed', label: 'Social' },
           { href: '/weigh-in', label: 'Weigh-In' },
           { href: '/dashboard/workouts', label: 'Workouts' },
-          { href: '/dashboard/history', label: 'History' },
-          { href: '/exercises', label: 'Exercises' },
           { href: '/progress', label: 'Progress' },
         ]}
         onLogout={handleLogout}
       />
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-2xl mx-auto px-4 py-5 space-y-4">
+
+        {/* Page title */}
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">{name}&apos;s Dashboard</h1>
+          {goalDisplay && <p className="text-sm text-gray-500 mt-0.5">{goalDisplay}</p>}
+        </div>
+
         {/* Pending friend requests */}
         {pendingRequests.length > 0 && (
-          <div className="bg-white rounded-xl shadow-sm border border-blue-100 p-4 mb-6">
+          <div className="bg-white rounded-2xl border border-blue-100 p-4 shadow-sm">
             <div className="flex items-center gap-2 mb-3">
-              <span className="inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full">
+              <span className="w-5 h-5 text-xs font-bold text-white bg-red-500 rounded-full flex items-center justify-center">
                 {pendingRequests.length}
               </span>
-              <h3 className="font-semibold text-gray-900 text-sm">
-                Friend Request{pendingRequests.length !== 1 ? 's' : ''}
-              </h3>
+              <h3 className="font-semibold text-gray-900 text-sm">Friend Request{pendingRequests.length !== 1 ? 's' : ''}</h3>
             </div>
             <div className="space-y-2">
               {pendingRequests.map(r => (
                 <div key={r.friendshipId} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm font-bold flex-shrink-0">
+                    <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-sm font-bold">
                       {r.name?.trim()[0]?.toUpperCase() ?? '?'}
                     </div>
                     <span className="text-sm font-medium text-gray-900">{r.name ?? 'Someone'}</span>
                   </div>
                   <div className="flex gap-2">
-                    <button
-                      onClick={() => acceptRequest(r.friendshipId)}
-                      className="px-3 py-1 text-xs font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      Accept
-                    </button>
-                    <button
-                      onClick={() => rejectRequest(r.friendshipId)}
-                      className="px-3 py-1 text-xs font-semibold bg-gray-100 text-gray-600 rounded-lg hover:bg-gray-200 transition-colors"
-                    >
-                      Decline
-                    </button>
+                    <button onClick={() => acceptRequest(r.friendshipId)} className="px-3 py-1 text-xs font-semibold bg-blue-600 text-white rounded-lg">Accept</button>
+                    <button onClick={() => rejectRequest(r.friendshipId)} className="px-3 py-1 text-xs font-semibold bg-gray-100 text-gray-600 rounded-lg">Decline</button>
                   </div>
                 </div>
               ))}
@@ -397,287 +266,204 @@ export default function DashboardPage() {
         {/* Morning weigh-in banner */}
         {isMorningWindow && (
           todayWeighIn ? (
-            <div className="bg-green-50 border border-green-200 rounded-xl px-5 py-4 mb-6 flex items-center gap-3">
-              <span className="text-green-500 text-xl">✓</span>
-              <p className="text-green-800 font-medium text-sm">Weighed in today</p>
-              <Link href="/weigh-in" className="ml-auto text-sm text-green-700 hover:text-green-900 font-medium">Update</Link>
+            <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-3 flex items-center gap-3">
+              <span className="text-green-500 text-lg">✓</span>
+              <p className="text-green-800 font-medium text-sm flex-1">Weighed in today</p>
+              <Link href="/weigh-in" className="text-sm text-green-700 font-medium">Update</Link>
             </div>
           ) : (
-            <div className="bg-blue-600 text-white rounded-xl px-5 py-4 mb-6 flex items-center justify-between">
+            <div className="bg-blue-600 text-white rounded-2xl px-4 py-4 flex items-center justify-between">
               <div>
-                <p className="font-bold">Good morning — time to weigh in</p>
-                <p className="text-blue-200 text-sm mt-0.5">Takes 10 seconds. Keep your streak going.</p>
+                <p className="font-bold text-sm">Good morning — time to weigh in</p>
+                <p className="text-blue-200 text-xs mt-0.5">Takes 10 seconds. Keep your streak going.</p>
               </div>
-              <Link
-                href="/weigh-in"
-                className="flex-shrink-0 ml-4 px-4 py-2 bg-white text-blue-600 rounded-lg text-sm font-bold hover:bg-blue-50 transition-colors"
-              >
+              <Link href="/weigh-in" className="flex-shrink-0 ml-3 px-3 py-1.5 bg-white text-blue-600 rounded-xl text-sm font-bold">
                 Log Weight
               </Link>
             </div>
           )
         )}
-        {/* Welcome Section */}
-        <div className="mb-8">
-          <h2 className="text-3xl font-bold text-gray-900 mb-2">
-            Welcome back, {profile?.full_name || 'there'}! 👋
-          </h2>
-          <p className="text-gray-600">
-            Goal: {goalDisplay} • 
-            Level: {profile?.fitness_level || 'Not set'} • 
-            Training {profile?.workout_frequency || '0'}x/week
-          </p>
-        </div>
 
-        {/* Stats Grid */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-600">Workouts This Week</h3>
-              <span className="text-2xl">🔥</span>
-            </div>
-            <p className="text-3xl font-bold text-gray-900">{stats.thisWeek}</p>
-            <p className="text-sm text-gray-500 mt-1">Goal: {profile?.workout_frequency || '3'}/week</p>
-          </div>
+        {/* ── BLUE SECTION: Stats + Weight + Feed ── */}
+        <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl p-4 space-y-4">
 
-          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-600">Total Workouts</h3>
-              <span className="text-2xl">💪</span>
-            </div>
-            <p className="text-3xl font-bold text-gray-900">{stats.total}</p>
-            <p className="text-sm text-gray-500 mt-1">Keep it up!</p>
-          </div>
-
-          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-600">Workout Streak</h3>
-              <span className="text-2xl">⚡</span>
-            </div>
-            <p className="text-3xl font-bold text-gray-900">{stats.streak} days</p>
-            <p className="text-sm text-gray-500 mt-1">
-              {stats.streak > 0 ? 'Amazing!' : 'Start your streak!'}
-            </p>
-          </div>
-             <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-600">Weigh-In Streak</h3>
-              <span className="text-2xl">⚖️</span>
-            </div>
-            <p className="text-3xl font-bold text-gray-900">{weighInStreak} days</p>
-            <p className="text-sm text-gray-500 mt-1">
-              <Link href="/weigh-in" className="text-blue-500 hover:text-blue-600">
-                {todayWeighIn ? 'Logged today ✓' : 'Log today'}
-              </Link>
-            </p>
-          </div>
-        </div>
-
-        {/* Weight Trend */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-bold text-gray-900">Weight Trend</h3>
-            <Link href="/weigh-in/history" className="text-sm font-medium text-blue-600 hover:text-blue-700">
-              Full History
-            </Link>
-          </div>
-
-          {recentWeighIns.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500 mb-3">No weigh-ins logged yet</p>
-              <Link
-                href="/weigh-in"
-                className="inline-block px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
-              >
-                Log Your First Weight
-              </Link>
-            </div>
-          ) : (
-            <div className="flex flex-col md:flex-row md:items-start gap-6">
-              {/* Latest + delta */}
-              <div className="flex-shrink-0">
-                <p className="text-sm text-gray-500 mb-1">Latest</p>
-                <p className="text-4xl font-bold text-gray-900">
-                  {recentWeighIns[0].weight_kg}
-                  <span className="text-lg font-normal text-gray-500 ml-1">kg</span>
-                </p>
-                {recentWeighIns.length >= 2 && (() => {
-                  const delta = recentWeighIns[0].weight_kg - recentWeighIns[1].weight_kg
-                  const sign = delta > 0 ? '+' : ''
-                  const colour = delta > 0 ? 'text-red-500' : delta < 0 ? 'text-green-600' : 'text-gray-400'
-                  return (
-                    <p className={`text-sm font-medium mt-1 ${colour}`}>
-                      {sign}{delta.toFixed(1)} kg vs previous
-                    </p>
-                  )
-                })()}
-              </div>
-
-              {/* Sparkline */}
-              {recentWeighIns.length >= 2 && (
-                <div className="flex-1 flex items-center">
-                  <WeightSparkline entries={recentWeighIns} />
+          {/* Stats grid */}
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              { label: 'This Week', value: stats.thisWeek, sub: `Goal: ${profile?.workout_frequency ?? '3'}/wk`, icon: '🔥' },
+              { label: 'Total Workouts', value: stats.total, sub: 'All time', icon: '💪' },
+              { label: 'Workout Streak', value: `${stats.streak}d`, sub: stats.streak > 0 ? 'Keep it up!' : 'Start today', icon: '⚡' },
+              { label: 'Weigh-In Streak', value: `${weighInStreak}d`, sub: todayWeighIn ? 'Logged today ✓' : 'Log today', icon: '⚖️', href: '/weigh-in' },
+            ].map(s => (
+              <div key={s.label} className="bg-white rounded-xl p-3 shadow-sm">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-xs font-medium text-gray-500 leading-tight">{s.label}</p>
+                  <span className="text-lg">{s.icon}</span>
                 </div>
-              )}
+                <p className="text-2xl font-bold text-gray-900">{s.value}</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {s.href ? <Link href={s.href} className="text-blue-500">{s.sub}</Link> : s.sub}
+                </p>
+              </div>
+            ))}
+          </div>
 
-              {/* Last 5 entries */}
-              <div className="flex-shrink-0 min-w-[160px]">
-                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Recent</p>
-                <div className="space-y-1.5">
-                  {recentWeighIns.slice(0, 5).map(entry => (
-                    <div key={entry.logged_date} className="flex justify-between text-sm">
-                      <span className="text-gray-500">
-                        {new Date(entry.logged_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      </span>
-                      <span className="font-medium text-gray-900">{entry.weight_kg} kg</span>
+          {/* Weight trend + Feed preview */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+            {/* Weight trend */}
+            <div className="bg-white rounded-xl p-4 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold text-gray-700">Weight Trend</p>
+                <Link href="/weigh-in/history" className="text-xs text-blue-600 font-medium">History</Link>
+              </div>
+              {recentWeighIns.length === 0 ? (
+                <div className="text-center py-3">
+                  <p className="text-xs text-gray-400 mb-2">No entries yet</p>
+                  <Link href="/weigh-in" className="text-xs text-blue-600 font-medium">Log first weight →</Link>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-end gap-3 mb-2">
+                    <div>
+                      <p className="text-2xl font-bold text-gray-900">{recentWeighIns[0].weight_kg}<span className="text-sm font-normal text-gray-400 ml-0.5">kg</span></p>
+                      {recentWeighIns.length >= 2 && (() => {
+                        const d = recentWeighIns[0].weight_kg - recentWeighIns[1].weight_kg
+                        return <p className={`text-xs font-medium ${d > 0 ? 'text-red-500' : d < 0 ? 'text-green-600' : 'text-gray-400'}`}>{d > 0 ? '+' : ''}{d.toFixed(1)} kg</p>
+                      })()}
+                    </div>
+                    {recentWeighIns.length >= 2 && <WeightSparkline entries={recentWeighIns} />}
+                  </div>
+                  {/* Weight goal progress */}
+                  <div className="border-t border-gray-100 pt-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-xs text-gray-500">Goal: {goalWeight ? `${goalWeight} kg` : 'Not set'}</p>
+                      <button onClick={() => { setEditingGoal(true); setGoalInput(goalWeight ? String(goalWeight) : '') }} className="text-xs text-blue-600">
+                        {goalWeight ? 'Edit' : 'Set'}
+                      </button>
+                    </div>
+                    {editingGoal ? (
+                      <div className="flex gap-1.5">
+                        <input type="number" step="0.1" value={goalInput} onChange={e => setGoalInput(e.target.value)}
+                          placeholder="75" className="w-20 px-2 py-1 border border-gray-300 rounded-lg text-xs" />
+                        <button onClick={saveGoal} className="px-2 py-1 bg-blue-600 text-white text-xs rounded-lg">Save</button>
+                        <button onClick={() => { setEditingGoal(false); setGoalError(null) }} className="px-2 py-1 text-xs text-gray-500">✕</button>
+                        {goalError && <p className="text-xs text-red-500">{goalError}</p>}
+                      </div>
+                    ) : goalWeight && recentWeighIns[0] ? (() => {
+                      const current = recentWeighIns[0].weight_kg
+                      const start = recentWeighIns[recentWeighIns.length - 1]?.weight_kg ?? current
+                      const total = Math.abs(start - goalWeight)
+                      const progress = total === 0 ? 100 : Math.min(100, Math.abs(start - current) / total * 100)
+                      const remaining = Math.abs(current - goalWeight).toFixed(1)
+                      return (
+                        <>
+                          <div className="w-full bg-gray-100 rounded-full h-1.5">
+                            <div className="bg-blue-500 h-1.5 rounded-full" style={{ width: `${progress}%` }} />
+                          </div>
+                          <p className="text-xs text-gray-400 mt-1">{Math.abs(current - goalWeight) < 0.5 ? '🎉 Goal reached!' : `${remaining} kg to go`}</p>
+                        </>
+                      )
+                    })() : null}
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Mini feed */}
+            <div className="bg-white rounded-xl p-4 shadow-sm">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-sm font-semibold text-gray-700">Friends</p>
+                <Link href="/feed" className="text-xs text-blue-600 font-medium">See all</Link>
+              </div>
+              {feedPreview.length === 0 ? (
+                <div className="text-center py-3">
+                  <p className="text-xs text-gray-400 mb-2">No friend activity yet</p>
+                  <Link href="/friends" className="text-xs text-blue-600 font-medium">Invite friends →</Link>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {feedPreview.slice(0, 3).map((item, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center text-xs font-bold flex-shrink-0">
+                        {item.userName?.trim()[0]?.toUpperCase() ?? '?'}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs text-gray-700 truncate"><span className="font-semibold">{item.userName ?? 'Friend'}</span> {item.action}</p>
+                        <p className="text-xs text-gray-400">{relTime(item.time)}</p>
+                      </div>
                     </div>
                   ))}
                 </div>
-              </div>
+              )}
             </div>
-          )}
-
-          <div className="mt-4 pt-4 border-t border-gray-100">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-sm font-medium text-gray-600">Weight Goal</p>
-              <button onClick={() => { setEditingGoal(true); setGoalInput(goalWeight ? String(goalWeight) : '') }} className="text-xs text-blue-600 hover:text-blue-700">
-                {goalWeight ? 'Edit' : 'Set goal'}
-              </button>
-            </div>
-            {editingGoal ? (
-              <div className="space-y-2">
-                <div className="flex gap-2">
-                  <input type="number" step="0.1" value={goalInput} onChange={e => setGoalInput(e.target.value)}
-                    placeholder="e.g. 75" className="w-28 px-3 py-1.5 border border-gray-300 rounded-lg text-sm text-gray-900" />
-                  <button onClick={saveGoal} className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700">Save</button>
-                  <button onClick={() => { setEditingGoal(false); setGoalError(null) }} className="px-3 py-1.5 text-sm text-gray-500 hover:text-gray-700">Cancel</button>
-                </div>
-                {goalError && <p className="text-xs text-red-500">{goalError}</p>}
-              </div>
-            ) : goalWeight ? (
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-gray-500">Current: <span className="font-medium text-gray-900">{recentWeighIns[0]?.weight_kg ?? '—'} kg</span></span>
-                  <span className="text-gray-500">Goal: <span className="font-medium text-gray-900">{goalWeight} kg</span></span>
-                </div>
-                {recentWeighIns[0] && (() => {
-                  const current = recentWeighIns[0].weight_kg
-                  const start = recentWeighIns[recentWeighIns.length - 1]?.weight_kg ?? current
-                  const totalChange = Math.abs(start - goalWeight)
-                  const progress = totalChange === 0 ? 100 : Math.min(100, Math.max(0, Math.abs(start - current) / totalChange * 100))
-                  const remaining = Math.abs(current - goalWeight).toFixed(1)
-                  const achieved = Math.abs(current - goalWeight) < 0.5
-                  return (
-                    <div>
-                      <div className="w-full bg-gray-100 rounded-full h-2 mb-1">
-                        <div className="bg-blue-500 h-2 rounded-full transition-all" style={{ width: `${progress}%` }} />
-                      </div>
-                      <p className="text-xs text-gray-500">{achieved ? '🎉 Goal reached!' : `${remaining} kg to go`}</p>
-                    </div>
-                  )
-                })()}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-400">Set a target weight to track your progress</p>
-            )}
           </div>
         </div>
 
-        {/* Quick Actions */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 mb-8">
-          <h3 className="text-xl font-bold text-gray-900 mb-4">Quick Actions</h3>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Link
-              href="/dashboard/workouts/new"
-              className="p-6 border-2 border-dashed border-gray-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all group"
-            >
-              <div className="text-3xl mb-2">➕</div>
-              <h4 className="font-semibold text-gray-900 mb-1 group-hover:text-blue-600">Create Workout</h4>
-              <p className="text-sm text-gray-600">Build a custom workout routine</p>
-            </Link>
-
-            <Link
-              href="/weigh-in"
-              className="p-6 border-2 border-dashed border-gray-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all group"
-            >
-              <div className="text-3xl mb-2">⚖️</div>
-              <h4 className="font-semibold text-gray-900 mb-1 group-hover:text-blue-600">
-                {todayWeighIn ? 'Update Weigh-In' : 'Log Weigh-In'}
-              </h4>
-              <p className="text-sm text-gray-600">
-                {todayWeighIn ? 'Already logged today ✓' : 'Track your daily weight'}
-              </p>
-            </Link>
-
-            <Link
-              href="/exercises"
-              className="p-6 border-2 border-dashed border-gray-300 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all group"
-            >
-              <div className="text-3xl mb-2">📚</div>
-              <h4 className="font-semibold text-gray-900 mb-1 group-hover:text-blue-600">Browse Exercises</h4>
-              <p className="text-sm text-gray-600">Explore our exercise library</p>
-            </Link>
-          </div>
-        </div>
-
-        {/* Recent Activity */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-bold text-gray-900">Recent Activity</h3>
-            {recentSessions.length > 0 && (
-              <Link
-                href="/dashboard/history"
-                className="text-sm font-medium text-blue-600 hover:text-blue-700"
-              >
-                View All
+        {/* ── PURPLE SECTION: Quick Actions ── */}
+        <div className="bg-gradient-to-br from-violet-50 to-purple-50 rounded-2xl p-4">
+          <p className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</p>
+          <div className="grid grid-cols-1 gap-2">
+            {[
+              { href: '/dashboard/workouts', icon: '🏋️', label: 'Start a Workout', sub: 'Pick from your routines' },
+              { href: '/weigh-in', icon: '⚖️', label: todayWeighIn ? 'Update Weigh-In' : 'Log Weigh-In', sub: todayWeighIn ? 'Already logged today ✓' : 'Track your daily weight' },
+              { href: '/dashboard/workouts/new', icon: '➕', label: 'Create Workout', sub: 'Build a new routine' },
+              { href: '/exercises', icon: '📚', label: 'Browse Exercises', sub: 'Explore exercise library' },
+            ].map(a => (
+              <Link key={a.href} href={a.href}
+                className="flex items-center gap-3 bg-white rounded-xl px-4 py-3 shadow-sm hover:shadow-md transition-shadow active:scale-95">
+                <span className="text-2xl flex-shrink-0">{a.icon}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-gray-900">{a.label}</p>
+                  <p className="text-xs text-gray-500">{a.sub}</p>
+                </div>
+                <svg className="w-4 h-4 text-gray-400 ml-auto flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                </svg>
               </Link>
+            ))}
+          </div>
+        </div>
+
+        {/* ── Recent Activity ── */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-gray-700">Recent Workouts</p>
+            {recentSessions.length > 0 && (
+              <Link href="/dashboard/history" className="text-xs text-blue-600 font-medium">View all</Link>
             )}
           </div>
-          
           {recentSessions.length === 0 ? (
-            <div className="text-center py-12">
-              <div className="text-6xl mb-4">🏋️</div>
-              <p className="text-gray-500 mb-4">No workouts yet</p>
-              <Link
-                href="/dashboard/workouts/new"
-                className="inline-block px-6 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
-              >
+            <div className="text-center py-8">
+              <div className="text-4xl mb-3">🏋️</div>
+              <p className="text-sm text-gray-500 mb-3">No workouts yet</p>
+              <Link href="/dashboard/workouts/new" className="inline-block px-5 py-2 bg-blue-600 text-white rounded-xl text-sm font-semibold">
                 Start Your First Workout
               </Link>
             </div>
           ) : (
-            <div className="space-y-3">
-              {recentSessions.map((session) => (
-                <div
-                  key={session.id}
-                  className="p-4 border border-gray-200 rounded-lg hover:border-blue-300 hover:bg-gray-50 transition-all"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-green-100 rounded-full flex items-center justify-center">
-                        <span className="text-lg">✓</span>
-                      </div>
-                      <div>
-                <h4 className="font-semibold text-gray-900">
-                {session.workouts?.[0]?.name || 'Workout'}
-                </h4>
-                        <p className="text-sm text-gray-600">
-                          {session.duration_minutes} minutes • {formatDate(session.completed_at)}
-                        </p>
-                      </div>
+            <div className="divide-y divide-gray-100">
+              {recentSessions.map(s => (
+                <div key={s.id} className="flex items-center justify-between py-3 first:pt-0 last:pb-0">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 bg-green-100 rounded-full flex items-center justify-center flex-shrink-0">
+                      <span className="text-sm">✓</span>
                     </div>
-                    <Link
-                        href={`/dashboard/history/${session.id}`}
-                      className="text-sm font-medium text-blue-600 hover:text-blue-700"
-                    >
-                      View Details
-                    </Link>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900 truncate">{s.workouts?.[0]?.name ?? 'Workout'}</p>
+                      <p className="text-xs text-gray-500">{s.duration_minutes}min · {formatDate(s.completed_at)}</p>
+                    </div>
                   </div>
+                  <Link href={`/dashboard/history/${s.id}`} className="text-xs text-blue-600 font-medium flex-shrink-0 ml-2">
+                    Details
+                  </Link>
                 </div>
               ))}
             </div>
           )}
         </div>
+
+        <div className="h-4" />
       </main>
     </div>
   )
