@@ -239,6 +239,32 @@ export default function WorkoutLogPage() {
       }
     }
 
+    // Milestone check — workout count achievements
+    const { count: totalWorkouts } = await supabaseClient
+      .from('workout_sessions')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+
+    const WORKOUT_MILESTONES: Record<number, string> = {
+      10:  'hit 10 workouts! 💪',
+      25:  'completed 25 workouts! 🔥',
+      50:  'reached 50 workouts! 🏆',
+      100: 'hit 100 workouts! 🎉',
+      250: 'completed an incredible 250 workouts! 🌟',
+    }
+
+    if (totalWorkouts && WORKOUT_MILESTONES[totalWorkouts]) {
+      await supabaseClient.from('feed_posts').upsert(
+        {
+          user_id: user.id,
+          post_type: 'milestone_workout',
+          milestone_key: `workouts_${totalWorkouts}`,
+          message: WORKOUT_MILESTONES[totalWorkouts],
+        },
+        { onConflict: 'user_id,milestone_key', ignoreDuplicates: true }
+      )
+    }
+
     router.push('/dashboard/history')
   }
 

@@ -29,7 +29,16 @@ type WeighInItem = {
   time: string
 }
  
-type FeedItem = WorkoutItem | WeighInItem
+type MilestoneItem = {
+  type: 'milestone'
+  id: string
+  userId: string
+  userName: string | null
+  message: string
+  time: string
+}
+
+type FeedItem = WorkoutItem | WeighInItem | MilestoneItem
  
 function calcStreak(dates: string[]): number {
   if (dates.length === 0) return 0
@@ -86,6 +95,23 @@ function WorkoutCard({ item, currentUserId }: { item: WorkoutItem; currentUserId
   )
 }
  
+function MilestoneCard({ item }: { item: MilestoneItem }) {
+  return (
+    <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl border border-yellow-200 px-4 py-3 flex items-center gap-3">
+      <div className="w-9 h-9 rounded-full bg-yellow-100 flex items-center justify-center flex-shrink-0 text-lg">
+        🏆
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-gray-700">
+          <span className="font-semibold">{item.userName ?? 'Someone'}</span>
+          {' '}{item.message}
+        </p>
+        <p className="text-xs text-gray-400 mt-0.5">{relativeTime(item.time)}</p>
+      </div>
+    </div>
+  )
+}
+
 function WeighInCard({ item }: { item: WeighInItem }) {
   return (
     <div className="bg-gray-50 rounded-xl border border-gray-200 px-4 py-3 flex items-center gap-3">
@@ -212,7 +238,24 @@ export default function FeedPage() {
         time: w.logged_date + 'T06:00:00',
       }))
  
-    const all = [...workoutItems, ...weighInItems]
+    // Milestone posts from friends
+    const { data: milestones } = await supabase
+      .from('feed_posts')
+      .select('id, user_id, message, created_at')
+      .in('user_id', friendIds)
+      .order('created_at', { ascending: false })
+      .limit(20)
+
+    const milestoneItems: FeedItem[] = (milestones ?? []).map(m => ({
+      type: 'milestone' as const,
+      id: m.id,
+      userId: m.user_id,
+      userName: profileMap.get(m.user_id) ?? null,
+      message: m.message,
+      time: m.created_at,
+    }))
+
+    const all = [...workoutItems, ...weighInItems, ...milestoneItems]
       .sort((a, b) => b.time.localeCompare(a.time))
       .slice(0, 50)
  
@@ -263,6 +306,8 @@ export default function FeedPage() {
             {feedItems.map(item => (
               item.type === 'workout'
                 ? <WorkoutCard key={item.id} item={item} currentUserId={currentUserId} />
+                : item.type === 'milestone'
+                ? <MilestoneCard key={item.id} item={item} />
                 : <WeighInCard key={item.id} item={item} />
             ))}
           </div>

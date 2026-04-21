@@ -117,6 +117,28 @@ export default function WeighInPage() {
         return
       }
 
+      // Milestone: weight goal reached
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('goal_weight')
+        .eq('id', userId)
+        .maybeSingle()
+
+      if (profile?.goal_weight !== null && profile?.goal_weight !== undefined) {
+        const diff = Math.abs(weightKg - profile.goal_weight)
+        if (diff < 0.5) {
+          await supabase.from('feed_posts').upsert(
+            {
+              user_id: userId,
+              post_type: 'milestone_weight_goal',
+              milestone_key: 'weight_goal_reached',
+              message: 'reached their weight goal! 🎯',
+            },
+            { onConflict: 'user_id,milestone_key', ignoreDuplicates: true }
+          )
+        }
+      }
+
       setSuccess(true)
       setSaving(false)
     } catch (err: unknown) {

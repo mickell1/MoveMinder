@@ -7,6 +7,9 @@ import { useRouter } from 'next/navigation'
 export default function OnboardingPage() {
   const router = useRouter()
   const supabaseClient = createClient()
+  const redirect = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('redirect')
+    : null
   
   const [step, setStep] = useState(1)
   const [loading, setLoading] = useState(false)
@@ -50,7 +53,7 @@ export default function OnboardingPage() {
 
     // profile upsert successful
  
-     router.push('/dashboard')
+     router.push(redirect || '/dashboard')
      router.refresh()
   }
 
