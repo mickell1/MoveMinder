@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import Link from 'next/link'
+import { AppHeader } from '@/src/components/AppHeader'
 
 type FriendProfile = { id: string; full_name: string | null }
 
@@ -18,6 +18,14 @@ type PendingFriend = {
   friendshipId: string
   otherId: string
   profile: FriendProfile
+}
+
+type InviteLink = {
+  id: string
+  token: string
+  uses_remaining: number
+  expires_at: string | null
+  created_at: string
 }
 
 function calcStreak(dates: string[]): number {
@@ -54,15 +62,20 @@ export default function FriendsPage() {
   const [userId, setUserId] = useState<string | null>(null)
   const [friends, setFriends] = useState<FriendData[]>([])
   const [pendingIn, setPendingIn] = useState<PendingFriend[]>([])
-  const [pendingOut, setPendingOut] = useState<PendingFriend[]>([])
+  const [myInvites, setMyInvites] = useState<InviteLink[]>([])
   const [inviteLink, setInviteLink] = useState<string | null>(null)
   const [copied, setCopied] = useState(false)
   const [creatingInvite, setCreatingInvite] = useState(false)
+  // safe client-side origin — avoids SSR window access
+  const [origin, setOrigin] = useState('')
+  const [emailInput, setEmailInput] = useState('')
+  const [emailSent, setEmailSent] = useState(false)
 
-  const load = useCallback(async () => {
+  async function load() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
     setUserId(user.id)
+    setOrigin(window.location.origin)
 
     const { data: ships } = await supabase
       .from('friendships')
@@ -70,10 +83,10 @@ export default function FriendsPage() {
       .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`)
 
     const accepted = (ships ?? []).filter(f => f.status === 'accepted')
-    const inbound = (ships ?? []).filter(f => f.status === 'pending' && f.friend_id === user.id)
-    const outbound = (ships ?? []).filter(f => f.status === 'pending' && f.user_id === user.id)
+    const inbound  = (ships ?? []).filter(f => f.status === 'pending' && f.friend_id === user.id)
+    const outbound = (ships ?? []).filter(f => f.status === 'pending' && f.user_id  === user.id)
 
-    const friendIds = accepted.map(f => f.user_id === user.id ? f.friend_id : f.user_id)
+    const friendIds  = accepted.map(f => f.user_id === user.id ? f.friend_id : f.user_id)
     const inboundIds = inbound.map(f => f.user_id)
     const outboundIds = outbound.map(f => f.friend_id)
     const allIds = [...new Set([...friendIds, ...inboundIds, ...outboundIds])]
@@ -87,7 +100,6 @@ export default function FriendsPage() {
       profs?.forEach(p => profileMap.set(p.id, p))
     }
 
-    // Weekly workout counts for accepted friends
     const weeklyMap = new Map<string, number>()
     if (friendIds.length > 0) {
       const start = new Date()
@@ -101,7 +113,6 @@ export default function FriendsPage() {
       sess?.forEach(s => weeklyMap.set(s.user_id, (weeklyMap.get(s.user_id) ?? 0) + 1))
     }
 
-    // Weigh-in streaks for accepted friends
     const streakMap = new Map<string, number>()
     if (friendIds.length > 0) {
       const ago = new Date()
@@ -137,20 +148,26 @@ export default function FriendsPage() {
         profile: profileMap.get(f.user_id) ?? { id: f.user_id, full_name: null },
       }))
     )
-    setPendingOut(
-      outbound.map(f => ({
-        friendshipId: f.id,
-        otherId: f.friend_id,
-        profile: profileMap.get(f.friend_id) ?? { id: f.friend_id, full_name: null },
-      }))
-    )
+
+    const { data: invites } = await supabase
+      .from('friend_invites')
+      .select('id, token, uses_remaining, expires_at, created_at')
+      .eq('inviter_id', user.id)
+      .order('created_at', { ascending: false })
+    setMyInvites((invites ?? []) as InviteLink[])
+
     setLoading(false)
-  }, [supabase, router])
+  }
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    async function init() { await load() }
+    init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
-  async function createInvite() {
-    if (!userId) return
+  async function ensureInviteLink(): Promise<string> {
+    if (inviteLink) return inviteLink
+    if (!userId) return ''
     setCreatingInvite(true)
     const token = crypto.randomUUID()
     const expires = new Date()
@@ -158,20 +175,40 @@ export default function FriendsPage() {
     const { error } = await supabase
       .from('friend_invites')
       .insert({ inviter_id: userId, token, uses_remaining: 10, expires_at: expires.toISOString() })
-    if (!error) {
-      setInviteLink(`${window.location.origin}/invite/${token}`)
-    }
     setCreatingInvite(false)
+    if (error) return ''
+    const link = `${window.location.origin}/invite/${token}`
+    setInviteLink(link)
+    load()
+    return link
+  }
+
+  async function createInvite() {
+    await ensureInviteLink()
   }
 
   async function copyLink() {
-    if (!inviteLink) return
-    if (navigator.share) {
-      try { await navigator.share({ title: 'Join me on MoveMinder', url: inviteLink }); return } catch { /* fallthrough */ }
+    const link = await ensureInviteLink()
+    if (!link) return
+    if ('share' in navigator) {
+      try { await navigator.share({ title: 'Join me on MoveMinder', url: link }); return } catch { /* fallthrough */ }
     }
-    await navigator.clipboard.writeText(inviteLink)
+    await navigator.clipboard.writeText(link)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  async function sendEmailInvite() {
+    const link = await ensureInviteLink()
+    if (!link) return
+    const subject = encodeURIComponent('Join me on MoveMinder')
+    const body = encodeURIComponent(
+      `Hey${emailInput ? '' : ' there'}!\n\nI'd love for you to join me on MoveMinder — we can track workouts and weigh-ins together and keep each other accountable.\n\nClick here to join: ${link}\n\nSee you there!`
+    )
+    const to = encodeURIComponent(emailInput.trim())
+    window.open(`mailto:${to}?subject=${subject}&body=${body}`)
+    setEmailSent(true)
+    setTimeout(() => setEmailSent(false), 3000)
   }
 
   async function acceptFriend(friendshipId: string) {
@@ -202,34 +239,28 @@ export default function FriendsPage() {
   }
 
   const TABS = [
-    { key: 'friends' as const, label: 'Friends', count: friends.length },
-    { key: 'pending' as const, label: 'Pending', count: pendingIn.length },
-    { key: 'sent' as const, label: 'Sent', count: pendingOut.length },
+    { key: 'friends' as const, label: 'Friends',      count: friends.length },
+    { key: 'pending' as const, label: 'Pending',      count: pendingIn.length },
+    { key: 'sent'    as const, label: 'Invite Links', count: myInvites.length },
   ]
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <span className="text-3xl">💪</span>
-              <h1 className="text-2xl font-bold text-gray-900">Friends</h1>
-            </div>
-            <div className="flex items-center gap-4">
-              <Link href="/feed" className="text-sm font-medium text-gray-700 hover:text-blue-600">Feed</Link>
-              <Link href="/weigh-in" className="text-sm font-medium text-gray-700 hover:text-blue-600">Weigh-In</Link>
-              <Link href="/dashboard" className="text-sm font-medium text-gray-700 hover:text-blue-600">Dashboard</Link>
-            </div>
-          </div>
-        </div>
-      </header>
+      <AppHeader
+        title="Friends"
+        links={[
+          { href: '/feed',                 label: 'Feed' },
+          { href: '/weigh-in',             label: 'Weigh-In' },
+          { href: '/dashboard/workouts',   label: 'Workouts' },
+        ]}
+      />
 
       <main className="max-w-2xl mx-auto px-4 py-8">
         {/* Invite card */}
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 mb-6">
           <h2 className="text-lg font-bold text-gray-900 mb-1">Invite a friend</h2>
-          <p className="text-sm text-gray-500 mb-4">Share a link — anyone with it can connect with you</p>
+          <p className="text-sm text-gray-500 mb-4">Share a link or send an email — anyone with the link can connect with you</p>
+
           {inviteLink ? (
             <div className="space-y-3">
               <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
@@ -239,7 +270,7 @@ export default function FriendsPage() {
                 onClick={copyLink}
                 className="w-full py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
               >
-                {copied ? '✓ Copied!' : navigator.share ? 'Share Link' : 'Copy Link'}
+                {copied ? '✓ Copied!' : 'share' in navigator ? 'Share Link' : 'Copy Link'}
               </button>
               <button
                 onClick={() => setInviteLink(null)}
@@ -252,11 +283,33 @@ export default function FriendsPage() {
             <button
               onClick={createInvite}
               disabled={creatingInvite}
-              className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="w-full py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 mb-3"
             >
               {creatingInvite ? 'Generating...' : 'Generate Invite Link'}
             </button>
           )}
+
+          {/* Email invite */}
+          <div className="mt-4 pt-4 border-t border-gray-100">
+            <p className="text-sm font-medium text-gray-700 mb-2">Or send directly by email</p>
+            <div className="flex gap-2">
+              <input
+                type="email"
+                value={emailInput}
+                onChange={e => setEmailInput(e.target.value)}
+                placeholder="friend@example.com"
+                className="flex-1 px-3 py-2 text-sm border border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none"
+              />
+              <button
+                onClick={sendEmailInvite}
+                disabled={creatingInvite}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-semibold rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 whitespace-nowrap"
+              >
+                {emailSent ? '✓ Sent!' : 'Send Email'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">Opens your email app with the invite pre-filled</p>
+          </div>
         </div>
 
         {/* Tabs */}
@@ -297,7 +350,11 @@ export default function FriendsPage() {
                     <div className="flex items-center gap-3">
                       <Avatar name={f.profile.full_name} />
                       <div>
-                        <p className="font-semibold text-gray-900">{f.profile.full_name ?? 'Unknown'}</p>
+                        <p className="font-semibold text-gray-900">
+                          {f.profile.full_name ?? (
+                            <span className="text-gray-400 font-normal italic">Profile not set up</span>
+                          )}
+                        </p>
                         <p className="text-sm text-gray-500">
                           {f.weeklyWorkouts} workout{f.weeklyWorkouts !== 1 ? 's' : ''} this week
                           {f.weighInStreak > 0 && (
@@ -330,7 +387,9 @@ export default function FriendsPage() {
                   <div key={f.friendshipId} className="flex items-center justify-between px-5 py-4">
                     <div className="flex items-center gap-3">
                       <Avatar name={f.profile.full_name} />
-                      <p className="font-semibold text-gray-900">{f.profile.full_name ?? 'Unknown'}</p>
+                      <p className="font-semibold text-gray-900">
+                        {f.profile.full_name ?? <span className="text-gray-400 font-normal italic">Profile not set up</span>}
+                      </p>
                     </div>
                     <div className="flex gap-2">
                       <button
@@ -353,30 +412,44 @@ export default function FriendsPage() {
           </div>
         )}
 
-        {/* Sent tab */}
+        {/* Invite links tab */}
         {tab === 'sent' && (
           <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-            {pendingOut.length === 0 ? (
-              <div className="p-8 text-center text-gray-500">No sent requests</div>
+            {myInvites.length === 0 ? (
+              <div className="p-8 text-center text-gray-500">No invite links yet — generate one above</div>
             ) : (
               <div className="divide-y divide-gray-100">
-                {pendingOut.map(f => (
-                  <div key={f.friendshipId} className="flex items-center justify-between px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <Avatar name={f.profile.full_name} />
+                {myInvites.map(inv => {
+                  const expired = inv.expires_at ? new Date(inv.expires_at) < new Date() : false
+                  const daysLeft = inv.expires_at
+                    ? Math.max(0, Math.ceil((new Date(inv.expires_at).getTime() - Date.now()) / 86400000))
+                    : null
+                  const linkUrl = origin ? `${origin}/invite/${inv.token}` : `/invite/${inv.token}`
+                  return (
+                    <div key={inv.id} className="flex items-center justify-between px-5 py-4">
                       <div>
-                        <p className="font-semibold text-gray-900">{f.profile.full_name ?? 'Unknown'}</p>
-                        <p className="text-sm text-gray-400">Awaiting response</p>
+                        <p className="text-sm font-mono text-gray-700 truncate max-w-[200px]">
+                          {linkUrl}
+                        </p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          {inv.uses_remaining} use{inv.uses_remaining !== 1 ? 's' : ''} left
+                          {daysLeft !== null && (expired
+                            ? ' · expired'
+                            : ` · expires in ${daysLeft}d`)}
+                        </p>
                       </div>
+                      <button
+                        onClick={async () => {
+                          await supabase.from('friend_invites').delete().eq('id', inv.id)
+                          load()
+                        }}
+                        className="text-sm text-gray-400 hover:text-red-500 transition-colors ml-4 flex-shrink-0"
+                      >
+                        Revoke
+                      </button>
                     </div>
-                    <button
-                      onClick={() => rejectFriend(f.friendshipId)}
-                      className="text-sm text-gray-400 hover:text-red-500 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>

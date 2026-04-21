@@ -61,8 +61,7 @@ export default function SessionDetailPage() {
         router.push('/login')
         return
       }
-      setCurrentUserId(user.id)
-
+    setCurrentUserId(user.id)
       // Load session
       const sessionResponse = await supabase
         .from('workout_sessions')
@@ -286,6 +285,7 @@ export default function SessionDetailPage() {
             <ReactionBar sessionId={sessionId!} userId={currentUserId} />
           </div>
         )}
+ 
 
         {/* Action Buttons */}
         <div className="flex gap-3">

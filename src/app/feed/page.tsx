@@ -1,11 +1,12 @@
 'use client'
-
-import { useEffect, useState, useCallback } from 'react'
+ 
+import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { AppHeader } from '@/src/components/AppHeader'
 import { ReactionBar } from '@/src/components/social/ReactionBar'
-
+ 
 type WorkoutItem = {
   type: 'workout'
   id: string
@@ -16,7 +17,7 @@ type WorkoutItem = {
   setCount: number
   time: string
 }
-
+ 
 type WeighInItem = {
   type: 'weighin'
   id: string
@@ -27,9 +28,18 @@ type WeighInItem = {
   streak: number
   time: string
 }
+ 
+type MilestoneItem = {
+  type: 'milestone'
+  id: string
+  userId: string
+  userName: string | null
+  message: string
+  time: string
+}
 
-type FeedItem = WorkoutItem | WeighInItem
-
+type FeedItem = WorkoutItem | WeighInItem | MilestoneItem
+ 
 function calcStreak(dates: string[]): number {
   if (dates.length === 0) return 0
   const set = new Set(dates)
@@ -45,7 +55,7 @@ function calcStreak(dates: string[]): number {
   }
   return streak
 }
-
+ 
 function relativeTime(isoString: string): string {
   const diffMs = Date.now() - new Date(isoString).getTime()
   const diffMins = Math.floor(diffMs / 60000)
@@ -55,7 +65,7 @@ function relativeTime(isoString: string): string {
   const diffDays = Math.floor(diffHours / 24)
   return diffDays === 1 ? 'yesterday' : `${diffDays}d ago`
 }
-
+ 
 function Avatar({ name }: { name: string | null }) {
   const initial = name?.trim()[0]?.toUpperCase() ?? '?'
   return (
@@ -64,7 +74,7 @@ function Avatar({ name }: { name: string | null }) {
     </div>
   )
 }
-
+ 
 function WorkoutCard({ item, currentUserId }: { item: WorkoutItem; currentUserId: string }) {
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
@@ -81,6 +91,23 @@ function WorkoutCard({ item, currentUserId }: { item: WorkoutItem; currentUserId
         {item.durationMinutes} min · {item.setCount} set{item.setCount !== 1 ? 's' : ''}
       </p>
       <ReactionBar sessionId={item.id} userId={currentUserId} />
+    </div>
+  )
+}
+ 
+function MilestoneCard({ item }: { item: MilestoneItem }) {
+  return (
+    <div className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl border border-yellow-200 px-4 py-3 flex items-center gap-3">
+      <div className="w-9 h-9 rounded-full bg-yellow-100 flex items-center justify-center flex-shrink-0 text-lg">
+        🏆
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm text-gray-700">
+          <span className="font-semibold">{item.userName ?? 'Someone'}</span>
+          {' '}{item.message}
+        </p>
+        <p className="text-xs text-gray-400 mt-0.5">{relativeTime(item.time)}</p>
+      </div>
     </div>
   )
 }
@@ -105,41 +132,41 @@ function WeighInCard({ item }: { item: WeighInItem }) {
     </div>
   )
 }
-
+ 
 export default function FeedPage() {
   const supabase = createClient()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [feedItems, setFeedItems] = useState<FeedItem[]>([])
   const [currentUserId, setCurrentUserId] = useState<string>('')
-
-  const load = useCallback(async () => {
+ 
+  async function load() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
     setCurrentUserId(user.id)
-
+ 
     // Get accepted friends
     const { data: ships } = await supabase
       .from('friendships')
       .select('user_id, friend_id')
       .or(`user_id.eq.${user.id},friend_id.eq.${user.id}`)
       .eq('status', 'accepted')
-
+ 
     const friendIds = (ships ?? []).map(f => f.user_id === user.id ? f.friend_id : f.user_id)
-
+ 
     if (friendIds.length === 0) {
       setFeedItems([])
       setLoading(false)
       return
     }
-
+ 
     // Friend profiles
     const { data: profiles } = await supabase
       .from('profiles')
       .select('id, full_name')
       .in('id', friendIds)
     const profileMap = new Map((profiles ?? []).map(p => [p.id, p.full_name as string | null]))
-
+ 
     // Recent workout sessions
     const { data: sessions } = await supabase
       .from('workout_sessions')
@@ -147,7 +174,7 @@ export default function FeedPage() {
       .in('user_id', friendIds)
       .order('completed_at', { ascending: false })
       .limit(30)
-
+ 
     // Set counts for those sessions
     const sessionIds = (sessions ?? []).map(s => s.id)
     const setCountMap = new Map<string, number>()
@@ -158,7 +185,7 @@ export default function FeedPage() {
         .in('session_id', sessionIds)
       sets?.forEach(s => setCountMap.set(s.session_id, (setCountMap.get(s.session_id) ?? 0) + 1))
     }
-
+ 
     // Recent weigh-ins from friend_weigh_ins (also used for streaks)
     const ago60 = new Date()
     ago60.setDate(ago60.getDate() - 60)
@@ -168,7 +195,7 @@ export default function FeedPage() {
       .in('user_id', friendIds)
       .gte('logged_date', ago60.toLocaleDateString('en-CA'))
       .order('logged_date', { ascending: false })
-
+ 
     // Compute streaks per friend
     const byUser = new Map<string, string[]>()
     ;(weighins ?? []).forEach(w => {
@@ -176,7 +203,7 @@ export default function FeedPage() {
       byUser.get(w.user_id)!.push(w.logged_date)
     })
     const streakMap = new Map(friendIds.map(id => [id, calcStreak(byUser.get(id) ?? [])]))
-
+ 
     // Workout feed items
     const workoutItems: FeedItem[] = (sessions ?? []).map(s => {
       const name = Array.isArray(s.workouts)
@@ -193,7 +220,7 @@ export default function FeedPage() {
         time: s.completed_at,
       }
     })
-
+ 
     // Weigh-in feed items (most recent 30 days)
     const ago30 = new Date()
     ago30.setDate(ago30.getDate() - 30)
@@ -210,17 +237,38 @@ export default function FeedPage() {
         streak: streakMap.get(w.user_id) ?? 0,
         time: w.logged_date + 'T06:00:00',
       }))
+ 
+    // Milestone posts from friends
+    const { data: milestones } = await supabase
+      .from('feed_posts')
+      .select('id, user_id, message, created_at')
+      .in('user_id', friendIds)
+      .order('created_at', { ascending: false })
+      .limit(20)
 
-    const all = [...workoutItems, ...weighInItems]
+    const milestoneItems: FeedItem[] = (milestones ?? []).map(m => ({
+      type: 'milestone' as const,
+      id: m.id,
+      userId: m.user_id,
+      userName: profileMap.get(m.user_id) ?? null,
+      message: m.message,
+      time: m.created_at,
+    }))
+
+    const all = [...workoutItems, ...weighInItems, ...milestoneItems]
       .sort((a, b) => b.time.localeCompare(a.time))
       .slice(0, 50)
-
+ 
     setFeedItems(all)
     setLoading(false)
-  }, [supabase, router])
+  }
 
-  useEffect(() => { load() }, [load])
-
+  useEffect(() => {
+    async function init() { await load() }
+    init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+ 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -228,25 +276,18 @@ export default function FeedPage() {
       </div>
     )
   }
-
+ 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <span className="text-3xl">💪</span>
-              <h1 className="text-2xl font-bold text-gray-900">Feed</h1>
-            </div>
-            <div className="flex items-center gap-4">
-              <Link href="/friends" className="text-sm font-medium text-gray-700 hover:text-blue-600">Friends</Link>
-              <Link href="/weigh-in" className="text-sm font-medium text-gray-700 hover:text-blue-600">Weigh-In</Link>
-              <Link href="/dashboard" className="text-sm font-medium text-gray-700 hover:text-blue-600">Dashboard</Link>
-            </div>
-          </div>
-        </div>
-      </header>
-
+      <AppHeader
+        title="Feed"
+        links={[
+          { href: '/friends', label: 'Friends' },
+          { href: '/weigh-in', label: 'Weigh-In' },
+          { href: '/dashboard/workouts', label: 'Workouts' },
+        ]}
+      />
+ 
       <main className="max-w-xl mx-auto px-4 py-8">
         {feedItems.length === 0 ? (
           <div className="bg-white rounded-xl shadow-sm p-8 border border-gray-200 text-center">
@@ -265,6 +306,8 @@ export default function FeedPage() {
             {feedItems.map(item => (
               item.type === 'workout'
                 ? <WorkoutCard key={item.id} item={item} currentUserId={currentUserId} />
+                : item.type === 'milestone'
+                ? <MilestoneCard key={item.id} item={item} />
                 : <WeighInCard key={item.id} item={item} />
             ))}
           </div>

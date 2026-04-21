@@ -8,6 +8,9 @@ import Link from 'next/link'
 export default function SignupPage() {
   const router = useRouter()
   const supabase = createClient()
+  const redirect = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('redirect')
+    : null
   
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -47,7 +50,8 @@ export default function SignupPage() {
         // Continue anyway - they can fill this in later
       }
 
-      router.push('/onboarding')
+      const dest = redirect ? `/onboarding?redirect=${encodeURIComponent(redirect)}` : '/onboarding'
+      router.push(dest)
       router.refresh()
     }
 
@@ -159,7 +163,7 @@ export default function SignupPage() {
 
           {/* Login Link */}
           <Link
-            href="/login"
+            href={redirect ? `/login?redirect=${encodeURIComponent(redirect)}` : '/login'}
             className="block w-full text-center py-3 border-2 border-gray-300 rounded-lg font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all"
           >
             Sign In

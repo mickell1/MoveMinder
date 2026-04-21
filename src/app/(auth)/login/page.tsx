@@ -8,6 +8,9 @@ import Link from 'next/link'
 export default function LoginPage() {
   const router = useRouter()
   const supabase = createClient()
+  const redirect = typeof window !== 'undefined'
+    ? new URLSearchParams(window.location.search).get('redirect')
+    : null
   
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -30,7 +33,7 @@ export default function LoginPage() {
       return
     }
 
-    const redirect = new URLSearchParams(window.location.search).get('redirect')
+   const redirect = new URLSearchParams(window.location.search).get('redirect')
     router.push(redirect || '/dashboard')
     router.refresh()
   }
@@ -43,7 +46,7 @@ export default function LoginPage() {
           <div className="inline-block bg-white rounded-2xl p-4 shadow-lg mb-4">
             <span className="text-5xl">💪</span>
           </div>
-          <h1 className="text-4xl font-bold text-gray-900 mb-2">Welcome Back!</h1>
+          <h1 className="text-4xl font-bold text-gray-900 mb-2">Welcome!</h1>
           <p className="text-gray-600">Sign in to continue your journey</p>
         </div>
 
@@ -127,7 +130,7 @@ export default function LoginPage() {
 
           {/* Signup Link */}
           <Link
-            href="/signup"
+            href={redirect ? `/signup?redirect=${encodeURIComponent(redirect)}` : '/signup'}
             className="block w-full text-center py-3 border-2 border-gray-300 rounded-lg font-semibold text-gray-700 hover:bg-gray-50 hover:border-gray-400 transition-all"
           >
             Create Account

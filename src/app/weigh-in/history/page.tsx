@@ -1,10 +1,11 @@
 'use client'
-
-import { useEffect, useState, useCallback } from 'react'
+ 
+import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-
+import { AppHeader } from '@/src/components/AppHeader'
+ 
 type WeighIn = {
   id: string
   weight_kg: number
@@ -12,7 +13,7 @@ type WeighIn = {
   notes: string | null
   share_weight: boolean
 }
-
+ 
 function WeightChart({ data, unit }: { data: WeighIn[]; unit: 'kg' | 'lb' }) {
   if (data.length < 2) {
     return (
@@ -21,32 +22,32 @@ function WeightChart({ data, unit }: { data: WeighIn[]; unit: 'kg' | 'lb' }) {
       </div>
     )
   }
-
+ 
   const sorted = [...data].sort((a, b) => a.logged_date.localeCompare(b.logged_date))
   const weights = sorted.map(d => unit === 'kg' ? d.weight_kg : d.weight_kg * 2.20462)
   const minW = Math.min(...weights)
   const maxW = Math.max(...weights)
   const range = maxW - minW || 1
-
+ 
   const W = 600
   const H = 160
   const PAD = { top: 10, right: 20, bottom: 30, left: 48 }
   const chartW = W - PAD.left - PAD.right
   const chartH = H - PAD.top - PAD.bottom
-
+ 
   const pts = sorted.map((_, i) => ({
     x: PAD.left + (i / (sorted.length - 1)) * chartW,
     y: PAD.top + (1 - (weights[i] - minW) / range) * chartH,
     w: weights[i],
   }))
-
+ 
   const polyline = pts.map(p => `${p.x},${p.y}`).join(' ')
-
+ 
   const yTicks = [0, 0.5, 1].map(t => ({
     w: minW + t * range,
     y: PAD.top + (1 - t) * chartH,
   }))
-
+ 
   const xStep = Math.max(1, Math.floor(sorted.length / 5))
   const xLabels = sorted
     .map((d, i) => ({ d, i }))
@@ -55,7 +56,7 @@ function WeightChart({ data, unit }: { data: WeighIn[]; unit: 'kg' | 'lb' }) {
       x: PAD.left + (i / (sorted.length - 1)) * chartW,
       label: new Date(d.logged_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
     }))
-
+ 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 200 }}>
       {yTicks.map((t, i) => (
@@ -82,7 +83,7 @@ function WeightChart({ data, unit }: { data: WeighIn[]; unit: 'kg' | 'lb' }) {
     </svg>
   )
 }
-
+ 
 export default function WeighInHistoryPage() {
   const supabase = createClient()
   const router = useRouter()
@@ -93,28 +94,32 @@ export default function WeighInHistoryPage() {
   const [editWeight, setEditWeight] = useState('')
   const [editNotes, setEditNotes] = useState('')
   const [editShare, setEditShare] = useState(false)
-
-  const load = useCallback(async () => {
+ 
+  async function load() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) { router.push('/login'); return }
-
+ 
     const { data } = await supabase
       .from('weigh_ins')
       .select('*')
       .eq('user_id', user.id)
       .order('logged_date', { ascending: false })
       .limit(90)
-
+ 
     setEntries((data ?? []) as WeighIn[])
     setLoading(false)
-  }, [supabase, router])
+  }
 
-  useEffect(() => { load() }, [load])
-
+  useEffect(() => {
+    async function init() { await load() }
+    init()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+ 
   function displayWeight(kg: number) {
     return unit === 'kg' ? `${Math.round(kg * 10) / 10} kg` : `${Math.round(kg * 2.20462 * 10) / 10} lb`
   }
-
+ 
   function startEdit(entry: WeighIn) {
     setEditingId(entry.id)
     const w = unit === 'kg' ? entry.weight_kg : Math.round(entry.weight_kg * 2.20462 * 10) / 10
@@ -122,7 +127,7 @@ export default function WeighInHistoryPage() {
     setEditNotes(entry.notes ?? '')
     setEditShare(entry.share_weight)
   }
-
+ 
   async function saveEdit(id: string) {
     const val = parseFloat(editWeight)
     if (isNaN(val) || val <= 0) return
@@ -134,13 +139,13 @@ export default function WeighInHistoryPage() {
     setEditingId(null)
     load()
   }
-
+ 
   async function deleteEntry(id: string) {
     if (!confirm('Delete this entry?')) return
     await supabase.from('weigh_ins').delete().eq('id', id)
     load()
   }
-
+ 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -148,41 +153,33 @@ export default function WeighInHistoryPage() {
       </div>
     )
   }
-
+ 
   const sorted = [...entries].sort((a, b) => a.logged_date.localeCompare(b.logged_date))
-
+ 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <Link href="/weigh-in" className="text-gray-600 hover:text-gray-900 text-sm">←</Link>
-              <h1 className="text-xl font-bold text-gray-900">Weight History</h1>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="flex bg-gray-100 rounded-lg p-1">
-                {(['kg', 'lb'] as const).map(u => (
-                  <button
-                    key={u}
-                    onClick={() => setUnit(u)}
-                    className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
-                      unit === u ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'
-                    }`}
-                  >
-                    {u}
-                  </button>
-                ))}
-              </div>
-              <Link href="/weigh-in" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-                Log Weight
-              </Link>
-            </div>
-          </div>
+      <AppHeader
+        title="Weight History"
+        links={[
+          { href: '/weigh-in', label: 'Weigh-In' },
+          { href: '/feed', label: 'Social' },
+          { href: '/dashboard/workouts', label: 'Workouts' },
+          { href: '/progress', label: 'Progress' },
+        ]}
+      />
+      <div className="flex justify-between items-center px-4 pt-4 max-w-2xl mx-auto">
+        <div className="flex bg-gray-100 rounded-lg p-1">
+          {(['kg', 'lb'] as const).map(u => (
+            <button key={u} onClick={() => setUnit(u)}
+              className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${unit === u ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500'}`}>
+              {u}
+            </button>
+          ))}
         </div>
-      </header>
+        <Link href="/weigh-in" className="text-sm text-blue-600 font-medium">+ Log Weight</Link>
+      </div>
 
-      <main className="max-w-2xl mx-auto px-4 py-8">
+      <main className="max-w-2xl mx-auto px-4 py-4">
         {entries.length === 0 ? (
           <div className="bg-white rounded-xl shadow-sm p-8 border border-gray-200 text-center">
             <div className="text-5xl mb-4">⚖️</div>
@@ -200,7 +197,7 @@ export default function WeighInHistoryPage() {
               <h2 className="text-lg font-bold text-gray-900 mb-4">Progress Chart</h2>
               <WeightChart data={sorted} unit={unit} />
             </div>
-
+ 
             <div className="bg-white rounded-xl shadow-sm border border-gray-200">
               <div className="px-6 py-4 border-b border-gray-200">
                 <h2 className="text-lg font-bold text-gray-900">Log Entries</h2>

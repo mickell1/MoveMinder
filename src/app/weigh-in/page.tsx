@@ -1,10 +1,11 @@
 'use client'
-
+ 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-
+import { AppHeader } from '@/src/components/AppHeader'
+ 
 type WeighIn = {
   id: string
   weight_kg: number
@@ -12,11 +13,11 @@ type WeighIn = {
   notes: string | null
   share_weight: boolean
 }
-
+ 
 export default function WeighInPage() {
   const supabase = createClient()
   const router = useRouter()
-
+ 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [success, setSuccess] = useState(false)
@@ -27,38 +28,47 @@ export default function WeighInPage() {
   const [existingEntry, setExistingEntry] = useState<WeighIn | null>(null)
   const [userId, setUserId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-
+ 
   const today = new Date().toLocaleDateString('en-CA')
-
+ 
   useEffect(() => {
     async function init() {
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { router.push('/login'); return }
-      setUserId(user.id)
+      try {
+        const { data: { user }, error: authError } = await supabase.auth.getUser()
+        if (authError) throw authError
+        if (!user) { router.push('/login'); return }
+        setUserId(user.id)
 
-      const { data } = await supabase
-        .from('weigh_ins')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('logged_date', today)
-        .maybeSingle()
+        const { data, error: fetchError } = await supabase
+          .from('weigh_ins')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('logged_date', today)
+          .maybeSingle()
 
-      if (data) {
-        setExistingEntry(data as WeighIn)
-        const displayWeight = unit === 'kg'
-          ? data.weight_kg
-          : Math.round(data.weight_kg * 2.20462 * 10) / 10
-        setWeightInput(String(displayWeight))
-        setNotes(data.notes ?? '')
-        setShareWeight(data.share_weight)
+        if (fetchError) throw fetchError
+
+        if (data) {
+          setExistingEntry(data as WeighIn)
+          const displayWeight = unit === 'kg'
+            ? data.weight_kg
+            : Math.round(data.weight_kg * 2.20462 * 10) / 10
+          setWeightInput(String(displayWeight))
+          setNotes(data.notes ?? '')
+          setShareWeight(data.share_weight)
+        }
+
+        setLoading(false)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        setError(`Failed to load: ${msg}. Try refreshing or disabling browser extensions.`)
+        setLoading(false)
       }
-
-      setLoading(false)
     }
     init()
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
+ 
   function handleUnitToggle(newUnit: 'kg' | 'lb') {
     if (newUnit === unit) return
     const val = parseFloat(weightInput)
@@ -71,46 +81,74 @@ export default function WeighInPage() {
     }
     setUnit(newUnit)
   }
-
+ 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!userId) return
-
+ 
     const parsed = parseFloat(weightInput)
     if (isNaN(parsed) || parsed <= 0) {
       setError('Please enter a valid weight')
       return
     }
-
+ 
     setSaving(true)
     setError(null)
 
     const weightKg = unit === 'kg' ? parsed : parsed / 2.20462
 
-    let err = null
-    if (existingEntry) {
-      const { error: e } = await supabase
-        .from('weigh_ins')
-        .update({ weight_kg: weightKg, notes: notes || null, share_weight: shareWeight })
-        .eq('id', existingEntry.id)
-      err = e
-    } else {
-      const { error: e } = await supabase
-        .from('weigh_ins')
-        .insert({ user_id: userId, weight_kg: weightKg, logged_date: today, notes: notes || null, share_weight: shareWeight })
-      err = e
-    }
+    try {
+      let err = null
+      if (existingEntry) {
+        const { error: e } = await supabase
+          .from('weigh_ins')
+          .update({ weight_kg: weightKg, notes: notes || null, share_weight: shareWeight })
+          .eq('id', existingEntry.id)
+        err = e
+      } else {
+        const { error: e } = await supabase
+          .from('weigh_ins')
+          .insert({ user_id: userId, weight_kg: weightKg, logged_date: today, notes: notes || null, share_weight: shareWeight })
+        err = e
+      }
 
-    if (err) {
-      setError(err.message)
+      if (err) {
+        setError(err.message)
+        setSaving(false)
+        return
+      }
+
+      // Milestone: weight goal reached
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('goal_weight')
+        .eq('id', userId)
+        .maybeSingle()
+
+      if (profile?.goal_weight !== null && profile?.goal_weight !== undefined) {
+        const diff = Math.abs(weightKg - profile.goal_weight)
+        if (diff < 0.5) {
+          await supabase.from('feed_posts').upsert(
+            {
+              user_id: userId,
+              post_type: 'milestone_weight_goal',
+              milestone_key: 'weight_goal_reached',
+              message: 'reached their weight goal! 🎯',
+            },
+            { onConflict: 'user_id,milestone_key', ignoreDuplicates: true }
+          )
+        }
+      }
+
+      setSuccess(true)
       setSaving(false)
-      return
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      setError(`Save failed: ${msg}. Try disabling browser extensions (e.g. AdBlock) and retry.`)
+      setSaving(false)
     }
-
-    setSuccess(true)
-    setSaving(false)
   }
-
+ 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -118,7 +156,7 @@ export default function WeighInPage() {
       </div>
     )
   }
-
+ 
   if (success) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
@@ -150,24 +188,20 @@ export default function WeighInPage() {
       </div>
     )
   }
-
+ 
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-white shadow-sm border-b sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex justify-between items-center">
-            <div className="flex items-center gap-3">
-              <Link href="/dashboard" className="text-gray-600 hover:text-gray-900 text-sm">← Dashboard</Link>
-              <h1 className="text-xl font-bold text-gray-900">Daily Weigh-In</h1>
-            </div>
-            <Link href="/weigh-in/history" className="text-sm text-blue-600 hover:text-blue-700 font-medium">
-              History
-            </Link>
-          </div>
-        </div>
-      </header>
-
-      <main className="max-w-lg mx-auto px-4 py-8">
+      <AppHeader
+        title="Weigh-In"
+        links={[
+          { href: '/feed', label: 'Social' },
+          { href: '/weigh-in/history', label: 'History' },
+          { href: '/dashboard/workouts', label: 'Workouts' },
+          { href: '/progress', label: 'Progress' },
+        ]}
+      />
+ 
+      <main className="max-w-lg mx-auto px-4 py-6">
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <div className="text-center mb-6">
             <div className="text-5xl mb-3">⚖️</div>
@@ -178,7 +212,7 @@ export default function WeighInPage() {
               {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
             </p>
           </div>
-
+ 
           <form onSubmit={handleSubmit} className="space-y-5">
             {/* Unit toggle */}
             <div className="flex bg-gray-100 rounded-lg p-1 gap-1">
@@ -195,7 +229,7 @@ export default function WeighInPage() {
                 </button>
               ))}
             </div>
-
+ 
             {/* Weight input */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Weight ({unit})</label>
@@ -210,7 +244,7 @@ export default function WeighInPage() {
                 required
               />
             </div>
-
+ 
             {/* Notes */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
@@ -222,7 +256,7 @@ export default function WeighInPage() {
                 className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:border-blue-500 focus:outline-none resize-none text-sm"
               />
             </div>
-
+ 
             {/* Share toggle */}
             <div className="flex items-center justify-between p-4 bg-gray-50 rounded-xl border border-gray-200">
               <div className="flex-1 mr-4">
@@ -245,9 +279,9 @@ export default function WeighInPage() {
                 />
               </button>
             </div>
-
+ 
             {error && <p className="text-red-600 text-sm text-center">{error}</p>}
-
+ 
             <button
               type="submit"
               disabled={saving || !weightInput}

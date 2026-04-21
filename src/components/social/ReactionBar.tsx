@@ -1,25 +1,28 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/src/lib/supabase/client'
 
 const EMOJIS = ['🔥', '💪', '👏', '❤️'] as const
 
 type Reaction = { emoji: string; user_id: string }
 
+async function fetchReactions(supabase: ReturnType<typeof createClient>, sessionId: string) {
+  const { data } = await supabase
+    .from('session_reactions')
+    .select('emoji, user_id')
+    .eq('session_id', sessionId)
+  return data ?? []
+}
+
 export function ReactionBar({ sessionId, userId }: { sessionId: string; userId: string }) {
   const supabase = createClient()
   const [reactions, setReactions] = useState<Reaction[]>([])
 
-  const load = useCallback(async () => {
-    const { data } = await supabase
-      .from('session_reactions')
-      .select('emoji, user_id')
-      .eq('session_id', sessionId)
-    setReactions(data ?? [])
-  }, [sessionId, supabase])
-
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    fetchReactions(supabase, sessionId).then(setReactions)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId])
 
   async function toggle(emoji: string) {
     const mine = reactions.some(r => r.user_id === userId && r.emoji === emoji)
@@ -35,7 +38,7 @@ export function ReactionBar({ sessionId, userId }: { sessionId: string; userId: 
         .from('session_reactions')
         .insert({ session_id: sessionId, user_id: userId, emoji })
     }
-    load()
+    fetchReactions(supabase, sessionId).then(setReactions)
   }
 
   return (
