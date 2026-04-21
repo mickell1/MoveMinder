@@ -416,6 +416,52 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* ── AI DISCOVERY CARD (new users only) ── */}
+        {stats.total < 3 && (
+          <div className="bg-gradient-to-r from-indigo-600 to-violet-600 rounded-2xl p-5 text-white">
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-3xl">🤖</span>
+              <div>
+                <p className="font-bold text-lg leading-tight">Meet your AI Personal Trainer</p>
+                <p className="text-indigo-200 text-sm mt-0.5">Generate a personalised workout or 7-day meal plan in seconds — tailored to your goals and body stats.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Link href="/ai/workout"
+                className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors text-center">
+                Generate Workout
+              </Link>
+              <Link href="/nutrition"
+                className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors text-center">
+                Get Meal Plan
+              </Link>
+            </div>
+          </div>
+        )}
+
+        {/* ── AI COACH SECTION ── */}
+        <div className="bg-gradient-to-br from-indigo-50 to-violet-50 rounded-2xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span className="text-lg">🤖</span>
+              <p className="text-sm font-semibold text-gray-700">AI Personal Trainer</p>
+            </div>
+            <Link href="/ai" className="text-xs text-indigo-600 font-medium">See all →</Link>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { href: '/ai/workout', icon: '🏋️', label: 'Generate Workout', sub: 'Single or 4-week plan', color: 'bg-blue-100' },
+              { href: '/nutrition', icon: '🥗', label: 'Meal Plan', sub: '7-day AI nutrition', color: 'bg-green-100' },
+            ].map(a => (
+              <Link key={a.href} href={a.href}
+                className="flex flex-col gap-1 bg-white rounded-xl px-3 py-3 shadow-sm hover:shadow-md transition-shadow active:scale-95">
+                <div className={`w-9 h-9 ${a.color} rounded-xl flex items-center justify-center text-lg mb-1`}>{a.icon}</div>
+                <p className="text-xs font-semibold text-gray-900 leading-tight">{a.label}</p>
+                <p className="text-xs text-gray-400">{a.sub}</p>
+              </Link>
+            ))}
+          </div>
+        </div>
         {/* ── PURPLE SECTION: Quick Actions ── */}
         <div className="bg-gradient-to-br from-violet-50 to-purple-50 rounded-2xl p-4">
           <p className="text-sm font-semibold text-gray-700 mb-3">Quick Actions</p>
