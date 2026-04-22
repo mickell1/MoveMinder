@@ -5,6 +5,7 @@ import { createClient } from '@/src/lib/supabase/client'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ReactionBar } from '@/src/components/social/ReactionBar'
+import { AppHeader } from '@/src/components/AppHeader'
 
 type WorkoutSession = {
   id: string
@@ -12,24 +13,10 @@ type WorkoutSession = {
   started_at: string
   completed_at: string
   duration_minutes: number
-  workout: {
-    name: string
-    description: string | null
-  }
+  workout: { name: string; description: string | null }
 }
 
-type SetLog = {
-  id: string
-  set_number: number
-  reps: number
-  weight: number
-  exercise_id: string
-}
-
-type WorkoutExercise = {
-  id: string
-  name: string
-}
+type SetLog = { id: string; set_number: number; reps: number; weight: number; exercise_id: string }
 
 type ExerciseGroup = {
   exerciseId: string
@@ -37,6 +24,13 @@ type ExerciseGroup = {
   sets: SetLog[]
   totalVolume: number
   avgWeight: number
+}
+
+type PBRecord = { exercise_name: string; weight_kg: number | null; reps: number | null; estimated_1rm: number | null }
+
+function epley1RM(weight: number, reps: number) {
+  if (weight <= 0 || reps <= 0) return 0
+  return weight * (1 + reps / 30)
 }
 
 export default function SessionDetailPage() {
@@ -47,259 +41,225 @@ export default function SessionDetailPage() {
 
   const [session, setSession] = useState<WorkoutSession | null>(null)
   const [exerciseGroups, setExerciseGroups] = useState<ExerciseGroup[]>([])
+  const [sessionPBs, setSessionPBs] = useState<Map<string, PBRecord>>(new Map())
   const [loading, setLoading] = useState(true)
-  const [currentUserId, setCurrentUserId] = useState<string>('')
+  const [currentUserId, setCurrentUserId] = useState('')
 
   useEffect(() => {
     if (!sessionId) return
 
-    async function loadSessionDetail() {
-      const userResponse = await supabase.auth.getUser()
-      const user = userResponse.data?.user
+    async function load() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { router.push('/login'); return }
+      setCurrentUserId(user.id)
 
-      if (!user) {
-        router.push('/login')
-        return
-      }
-    setCurrentUserId(user.id)
-      // Load session
-      const sessionResponse = await supabase
+      const { data: sessionData, error: sessionErr } = await supabase
         .from('workout_sessions')
-        .select(`
-          *,
-          workout:workouts(name, description)
-        `)
+        .select('*, workout:workouts(name, description)')
         .eq('id', sessionId)
         .eq('user_id', user.id)
         .single()
 
-      if (sessionResponse.error || !sessionResponse.data) {
-        console.error('Error loading session:', sessionResponse.error)
-        router.push('/dashboard/history')
-        return
-      }
+      if (sessionErr || !sessionData) { router.push('/dashboard/history'); return }
+      setSession(sessionData as WorkoutSession)
 
-      setSession(sessionResponse.data as WorkoutSession)
-
-      // Load all sets
-      const setsResponse = await supabase
+      const { data: setsData, error: setsErr } = await supabase
         .from('workout_sets')
         .select('*')
         .eq('session_id', sessionId)
         .order('exercise_id')
         .order('set_number')
 
-      if (setsResponse.error) {
-        console.error('Error loading sets:', setsResponse.error)
-        setLoading(false)
-        return
-      }
+      if (setsErr || !setsData?.length) { setLoading(false); return }
 
-      if (!setsResponse.data || setsResponse.data.length === 0) {
-        setLoading(false)
-        return
-      }
+      const exerciseIds = [...new Set(setsData.map((s: SetLog) => s.exercise_id))]
+      const { data: exData } = await supabase
+        .from('workout_exercises').select('id, name').in('id', exerciseIds)
 
-      // Get unique exercise IDs
-      const exerciseIds = [...new Set(setsResponse.data.map((set: SetLog) => set.exercise_id))]
+      const exMap = new Map<string, string>((exData ?? []).map(e => [e.id, e.name]))
 
-      // Load exercise names
-      const exercisesResponse = await supabase
-        .from('workout_exercises')
-        .select('id, name')
-        .in('id', exerciseIds)
-
-      // Create a map of exercise IDs to names
-      const exerciseMap = new Map<string, string>()
-      exercisesResponse.data?.forEach((ex: WorkoutExercise) => {
-        exerciseMap.set(ex.id, ex.name)
-      })
-
-      // Group sets by exercise
-      const grouped: Map<string, ExerciseGroup> = new Map()
-
-      setsResponse.data.forEach((set: SetLog) => {
-        const exerciseName = exerciseMap.get(set.exercise_id) || 'Unknown Exercise'
-        
+      const grouped = new Map<string, ExerciseGroup>()
+      for (const set of setsData as SetLog[]) {
+        const name = exMap.get(set.exercise_id) ?? 'Unknown Exercise'
         if (!grouped.has(set.exercise_id)) {
-          grouped.set(set.exercise_id, {
-            exerciseId: set.exercise_id,
-            exerciseName,
-            sets: [],
-            totalVolume: 0,
-            avgWeight: 0,
-          })
+          grouped.set(set.exercise_id, { exerciseId: set.exercise_id, exerciseName: name, sets: [], totalVolume: 0, avgWeight: 0 })
         }
+        const g = grouped.get(set.exercise_id)!
+        g.sets.push(set)
+        g.totalVolume += set.reps * set.weight
+      }
 
-        const group = grouped.get(set.exercise_id)!
-        group.sets.push(set as SetLog)
-        group.totalVolume += set.reps * set.weight
-      })
-
-      // Calculate average weight for each exercise
-      const groupsArray = Array.from(grouped.values()).map((group: ExerciseGroup) => ({
-        ...group,
-        avgWeight: group.sets.length > 0 
-          ? group.sets.reduce((sum: number, set: SetLog) => sum + set.weight, 0) / group.sets.length 
-          : 0,
+      const groups = Array.from(grouped.values()).map(g => ({
+        ...g,
+        avgWeight: g.sets.reduce((s, set) => s + set.weight, 0) / (g.sets.length || 1),
       }))
+      setExerciseGroups(groups)
 
-      setExerciseGroups(groupsArray)
+      // Load PBs set in this session
+      const { data: pbData } = await supabase
+        .from('personal_bests')
+        .select('exercise_name, weight_kg, reps, estimated_1rm')
+        .eq('user_id', user.id)
+        .eq('session_id', sessionId)
+
+      const pbMap = new Map<string, PBRecord>((pbData ?? []).map(p => [p.exercise_name, p]))
+      setSessionPBs(pbMap)
+
       setLoading(false)
     }
 
-    loadSessionDetail()
-  }, [sessionId, router, supabase])
+    load()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId])
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <div className="text-xl text-gray-600">Loading session...</div>
-      </div>
-    )
-  }
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="text-lg text-gray-600">Loading session…</div>
+    </div>
+  )
+  if (!session) return null
 
-  if (!session) {
-    return null
-  }
-
-  const completedDate = new Date(session.completed_at)
-  const dateStr = completedDate.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  })
-  const timeStr = completedDate.toLocaleTimeString('en-US', {
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-
-  const totalSets = exerciseGroups.reduce((sum: number, group: ExerciseGroup) => sum + group.sets.length, 0)
-  const totalVolume = exerciseGroups.reduce((sum: number, group: ExerciseGroup) => sum + group.totalVolume, 0)
+  const d = new Date(session.completed_at)
+  const dateStr = d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const timeStr = d.toLocaleTimeString('en-GB', { hour: 'numeric', minute: '2-digit' })
+  const totalSets = exerciseGroups.reduce((s, g) => s + g.sets.length, 0)
+  const totalVolume = exerciseGroups.reduce((s, g) => s + g.totalVolume, 0)
+  const hasPBs = sessionPBs.size > 0
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <header className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <Link
-                href="/dashboard/history"
-                className="text-sm text-gray-600 hover:text-gray-900 mb-2 inline-block"
-              >
-                ← Back to History
-              </Link>
-              <h1 className="text-3xl font-bold text-gray-900">{session.workout?.name}</h1>
-              <p className="text-gray-600 mt-1">
-                {dateStr} at {timeStr}
-              </p>
+      <AppHeader title="MoveMinder" />
+
+      <main className="max-w-2xl mx-auto px-4 py-6 space-y-4">
+        {/* Back + title */}
+        <div>
+          <Link href="/dashboard/history" className="text-sm text-blue-600 font-medium">← Back to History</Link>
+          <div className="flex items-center gap-3 mt-2">
+            <h1 className="text-2xl font-bold text-gray-900">{session.workout?.name}</h1>
+            {hasPBs && <span className="text-sm font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">💥 New PB!</span>}
+          </div>
+          <p className="text-sm text-gray-500 mt-0.5">{dateStr} · {timeStr}</p>
+        </div>
+
+        {/* PB celebration banner */}
+        {hasPBs && (
+          <div className="bg-gradient-to-r from-amber-400 to-orange-500 rounded-2xl p-4 text-white">
+            <p className="font-bold text-lg mb-1">Personal Best{sessionPBs.size > 1 ? 's' : ''} Set! 💥</p>
+            <div className="space-y-0.5">
+              {[...sessionPBs.values()].map(pb => (
+                <p key={pb.exercise_name} className="text-sm text-amber-100">
+                  {pb.exercise_name} — {pb.weight_kg}kg × {pb.reps} reps
+                  {pb.estimated_1rm ? ` (~${pb.estimated_1rm}kg 1RM)` : ''}
+                </p>
+              ))}
             </div>
           </div>
-        </div>
-      </header>
+        )}
 
-      <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Session Summary */}
-        <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-xl shadow-lg p-6 text-white mb-6">
-          <h2 className="text-xl font-bold mb-4">Workout Summary</h2>
+        {/* Summary */}
+        <div className="bg-gradient-to-r from-blue-500 to-indigo-600 rounded-2xl p-5 text-white">
+          <p className="text-sm font-semibold text-blue-200 mb-3">Workout Summary</p>
           <div className="grid grid-cols-3 gap-4">
-            <div>
-              <div className="text-3xl font-bold">{session.duration_minutes}</div>
-              <div className="text-blue-100 text-sm">Minutes</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold">{totalSets}</div>
-              <div className="text-blue-100 text-sm">Total Sets</div>
-            </div>
-            <div>
-              <div className="text-3xl font-bold">{Math.round(totalVolume).toLocaleString()}</div>
-              <div className="text-blue-100 text-sm">lbs Lifted</div>
-            </div>
+            {[
+              { label: 'Minutes', value: session.duration_minutes },
+              { label: 'Total Sets', value: totalSets },
+              { label: 'Volume (kg)', value: Math.round(totalVolume).toLocaleString() },
+            ].map(s => (
+              <div key={s.label}>
+                <div className="text-2xl font-bold">{s.value}</div>
+                <div className="text-blue-200 text-xs mt-0.5">{s.label}</div>
+              </div>
+            ))}
           </div>
         </div>
 
         {/* Description */}
         {session.workout?.description && (
-          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 mb-6">
-            <h3 className="text-sm font-medium text-gray-600 mb-2">Description</h3>
-            <p className="text-gray-900">{session.workout.description}</p>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Description</p>
+            <p className="text-sm text-gray-700">{session.workout.description}</p>
           </div>
         )}
 
-        {/* Exercises Performed */}
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 mb-6">
-          <h2 className="text-xl font-bold text-gray-900 mb-4">
-            Exercises ({exerciseGroups.length})
-          </h2>
+        {/* Exercises */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+          <h2 className="font-bold text-gray-900 mb-4">Exercises ({exerciseGroups.length})</h2>
 
           {exerciseGroups.length === 0 ? (
-            <div className="text-center py-8">
-              <p className="text-gray-500">No exercise data recorded</p>
-            </div>
+            <p className="text-sm text-gray-400 text-center py-6">No exercise data recorded</p>
           ) : (
-            <div className="space-y-6">
-              {exerciseGroups.map((group, index) => (
-                <div key={group.exerciseId} className="border-b border-gray-200 pb-6 last:border-b-0 last:pb-0">
-                  {/* Exercise Header */}
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-10 h-10 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center font-bold">
-                      {index + 1}
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="text-lg font-bold text-gray-900">{group.exerciseName}</h3>
-                      <p className="text-sm text-gray-600">
-                        {group.sets.length} sets • {Math.round(group.totalVolume).toLocaleString()} lbs total • Avg {Math.round(group.avgWeight)} lbs
-                      </p>
-                    </div>
-                  </div>
+            <div className="space-y-5">
+              {exerciseGroups.map((group, i) => {
+                const pb = sessionPBs.get(group.exerciseName)
+                const bestSet = pb ? group.sets.reduce((best, set) => {
+                  return epley1RM(set.weight, set.reps) > epley1RM(best.weight, best.reps) ? set : best
+                }, group.sets[0]) : null
 
-                  {/* Sets Table */}
-                  <div className="bg-gray-50 rounded-lg p-4">
-                    <div className="grid grid-cols-3 gap-4 mb-2 text-xs font-medium text-gray-600 uppercase">
-                      <div>Set</div>
-                      <div className="text-center">Reps</div>
-                      <div className="text-right">Weight</div>
-                    </div>
-                    <div className="space-y-2">
-                      {group.sets.map((set) => (
-                        <div key={set.id} className="grid grid-cols-3 gap-4 py-2 border-t border-gray-200">
-                          <div className="font-semibold text-gray-900">Set {set.set_number}</div>
-                          <div className="text-center font-bold text-gray-900">{set.reps}</div>
-                          <div className="text-right font-bold text-gray-900">{set.weight} lbs</div>
+                return (
+                  <div key={group.exerciseId} className={`pb-5 border-b border-gray-100 last:border-0 last:pb-0 ${pb ? 'relative' : ''}`}>
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${pb ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-600'}`}>
+                        {pb ? '💥' : i + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-bold text-gray-900">{group.exerciseName}</h3>
+                          {pb && (
+                            <span className="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">New PB!</span>
+                          )}
                         </div>
-                      ))}
+                        <p className="text-xs text-gray-500">
+                          {group.sets.length} sets · {Math.round(group.totalVolume)} kg total · avg {Math.round(group.avgWeight)} kg
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className={`rounded-xl p-3 ${pb ? 'bg-amber-50' : 'bg-gray-50'}`}>
+                      <div className="grid grid-cols-3 gap-2 mb-2 text-xs font-semibold text-gray-400 uppercase">
+                        <div>Set</div>
+                        <div className="text-center">Reps</div>
+                        <div className="text-right">Weight</div>
+                      </div>
+                      <div className="space-y-1.5">
+                        {group.sets.map(set => {
+                          const isBestSet = bestSet && set.id === bestSet.id
+                          return (
+                            <div key={set.id}
+                              className={`grid grid-cols-3 gap-2 py-1.5 border-t border-gray-200 first:border-0 ${isBestSet ? 'font-bold' : ''}`}>
+                              <div className={`text-sm ${isBestSet ? 'text-amber-600' : 'text-gray-600'}`}>
+                                {isBestSet ? '💥' : `Set ${set.set_number}`}
+                              </div>
+                              <div className={`text-center text-sm font-bold ${isBestSet ? 'text-amber-700' : 'text-gray-900'}`}>{set.reps}</div>
+                              <div className={`text-right text-sm font-bold ${isBestSet ? 'text-amber-700' : 'text-gray-900'}`}>{set.weight} kg</div>
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
 
         {/* Reactions */}
         {currentUserId && (
-          <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200 mb-6">
-            <h3 className="text-sm font-medium text-gray-600 mb-3">Reactions</h3>
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Reactions</p>
             <ReactionBar sessionId={sessionId!} userId={currentUserId} />
           </div>
         )}
- 
 
-        {/* Action Buttons */}
-        <div className="flex gap-3">
-          <Link
-            href="/dashboard/history"
-            className="flex-1 px-6 py-4 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 transition-colors text-center"
-          >
+        {/* Actions */}
+        <div className="flex gap-3 pb-6">
+          <Link href="/dashboard/history"
+            className="flex-1 py-3.5 bg-gray-100 text-gray-700 rounded-xl font-semibold text-center hover:bg-gray-200 transition-colors text-sm">
             Back to History
           </Link>
-          <Link
-            href={`/dashboard/workouts/${session.workout_id}`}
-            className="flex-1 px-6 py-4 bg-blue-600 text-white rounded-xl font-semibold hover:bg-blue-700 transition-colors text-center"
-          >
-            View Workout Plan
+          <Link href={`/dashboard/workouts/${session.workout_id}`}
+            className="flex-1 py-3.5 bg-blue-600 text-white rounded-xl font-semibold text-center hover:bg-blue-700 transition-colors text-sm">
+            View Workout
           </Link>
         </div>
       </main>

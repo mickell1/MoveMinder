@@ -92,10 +92,12 @@ export default function DashboardPage() {
   const [goalInput, setGoalInput] = useState('')
   const [pendingRequests, setPendingRequests] = useState<{ friendshipId: string; name: string | null }[]>([])
   const [feedPreview, setFeedPreview] = useState<FeedItem[]>([])
+  const [workedOutToday, setWorkedOutToday] = useState(false)
 
   const today = new Date().toLocaleDateString('en-CA')
   const currentHour = new Date().getHours()
   const isMorningWindow = currentHour >= 5 && currentHour < 12
+  const isEveningWindow = currentHour >= 17
 
   useEffect(() => {
     async function load() {
@@ -130,6 +132,7 @@ export default function DashboardPage() {
         if (d === cur.getTime() || d === cur.getTime() - 86400000) { streak++; cur = new Date(d - 86400000) } else break
       }
       setStats({ thisWeek, total: allS.length, streak })
+      setWorkedOutToday(allS.some(s => new Date(s.completed_at).toLocaleDateString('en-CA') === today))
 
       // Weigh-ins
       const wi = (weighInsRes.data ?? []) as WeighIn[]
@@ -298,6 +301,24 @@ export default function DashboardPage() {
               </Link>
             </div>
           )
+        )}
+
+        {/* Streak protection nudge — evening only, streak active, no workout yet today */}
+        {isEveningWindow && stats.streak > 0 && !workedOutToday && (
+          <div className="bg-orange-500 text-white rounded-2xl px-4 py-4 flex items-center justify-between">
+            <div>
+              <p className="font-bold text-sm">Your {stats.streak}-day streak ends tonight 🔥</p>
+              <p className="text-orange-200 text-xs mt-0.5">
+                {currentHour < 22
+                  ? `${22 - currentHour}h left — don't break it now!`
+                  : 'Last chance — finish a workout before midnight!'}
+              </p>
+            </div>
+            <Link href="/dashboard/workouts"
+              className="flex-shrink-0 ml-3 px-3 py-1.5 bg-white text-orange-600 rounded-xl text-sm font-bold">
+              Train →
+            </Link>
+          </div>
         )}
 
         {/* ── BLUE SECTION: Stats + Weight + Feed ── */}

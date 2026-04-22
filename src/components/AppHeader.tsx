@@ -26,23 +26,26 @@ const GLOBAL_NAV: NavLink[] = [
 export function AppHeader({ title = 'MoveMinder', links, onLogout }: Props) {
   const [open, setOpen] = useState(false)
   const [pendingCount, setPendingCount] = useState(0)
+  const [initials, setInitials] = useState('')
   const pathname = usePathname()
 
   const navLinks = links ?? GLOBAL_NAV
 
   useEffect(() => {
     const supabase = createClient()
-    async function fetchPending() {
+    async function fetchUserData() {
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) return
-      const { count } = await supabase
-        .from('friendships')
-        .select('id', { count: 'exact', head: true })
-        .eq('friend_id', user.id)
-        .eq('status', 'pending')
+      const [{ count }, { data: profile }] = await Promise.all([
+        supabase.from('friendships').select('id', { count: 'exact', head: true })
+          .eq('friend_id', user.id).eq('status', 'pending'),
+        supabase.from('profiles').select('full_name').eq('id', user.id).single(),
+      ])
       setPendingCount(count ?? 0)
+      const name = (profile as { full_name: string | null } | null)?.full_name ?? ''
+      setInitials(name.trim().split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2) || '?')
     }
-    fetchPending()
+    fetchUserData()
   }, [])
 
   useEffect(() => { setOpen(false) }, [pathname])
@@ -95,6 +98,12 @@ export function AppHeader({ title = 'MoveMinder', links, onLogout }: Props) {
                 Logout
               </button>
             )}
+            <Link href="/profile"
+              className={`ml-1 w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${pathname === '/profile' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
+              title="Your profile"
+            >
+              {initials || '?'}
+            </Link>
           </nav>
 
           {/* Mobile hamburger */}
@@ -122,6 +131,13 @@ export function AppHeader({ title = 'MoveMinder', links, onLogout }: Props) {
         {open && (
           <nav className="md:hidden pb-3 pt-2 border-t border-gray-100 flex flex-col gap-1">
             {navLinks.map(l => renderLink(l, true))}
+            <Link href="/profile"
+              className={`px-3 py-3 text-sm font-medium rounded-xl transition-colors flex items-center gap-3 ${pathname === '/profile' ? 'bg-blue-50 text-blue-600' : 'text-gray-700 hover:bg-gray-50'}`}
+              onClick={() => setOpen(false)}
+            >
+              <span className="w-6 h-6 rounded-full bg-gray-200 text-gray-700 text-xs font-bold flex items-center justify-center flex-shrink-0">{initials || '?'}</span>
+              <span>Profile</span>
+            </Link>
             {onLogout && (
               <button
                 onClick={() => { setOpen(false); onLogout() }}
