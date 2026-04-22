@@ -416,6 +416,30 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* ── AI DISCOVERY CARD (new users only) ── */}
+        {stats.total < 3 && (
+          <div className="bg-gradient-to-r from-indigo-600 to-violet-600 rounded-2xl p-5 text-white">
+            <div className="flex items-start gap-3 mb-3">
+              <span className="text-3xl">🤖</span>
+              <div>
+                <p className="font-bold text-lg leading-tight">Meet your AI Personal Trainer</p>
+                <p className="text-indigo-200 text-sm mt-0.5">Generate a personalised workout or 7-day meal plan in seconds — tailored to your goals and body stats.</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Link href="/ai/workout"
+                className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors text-center">
+                Generate Workout
+              </Link>
+              <Link href="/nutrition"
+                className="bg-white/20 hover:bg-white/30 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors text-center">
+                Get Meal Plan
+              </Link>
+            </div>
+          </div>
+        )}
+
+
         {/* ── AI COACH SECTION ── */}
         <div className="bg-gradient-to-br from-indigo-50 to-violet-50 rounded-2xl p-4">
           <div className="flex items-center justify-between mb-3">

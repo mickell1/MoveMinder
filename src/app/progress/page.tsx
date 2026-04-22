@@ -248,6 +248,18 @@ export default function ProgressPage() {
 
           <div className="border-t border-gray-100 mt-6 mb-6" />
 
+          {/* Personal Bests */}
+          <Link
+            href="/progress/pbs"
+            className="flex items-center justify-between w-full py-3 px-4 bg-amber-50 border border-amber-200 rounded-xl hover:bg-amber-100 transition-colors mb-3"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-xl">🏆</span>
+              <span className="font-semibold text-amber-800 text-sm">Personal Bests</span>
+            </div>
+            <span className="text-amber-600 text-sm">View all →</span>
+          </Link>
+
           {/* Share Button */}
           <button
             onClick={handleShare}
