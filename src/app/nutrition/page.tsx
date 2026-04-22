@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { AppHeader } from '@/src/components/AppHeader'
+import { useCalorieUnit } from '@/src/lib/hooks/useCalorieUnit'
 
 type Meal = { type: string; name: string; description: string; calories: number; protein: number; carbs: number; fat: number }
 type Day = { day: string; meals: Meal[]; dailyCalories: number; dailyProtein: number; dailyCarbs: number; dailyFat: number }
@@ -11,6 +12,7 @@ type MealPlan = { targetCalories: number; targetProtein: number; targetCarbs: nu
 const mealTypeIcon: Record<string, string> = { breakfast: '🌅', lunch: '☀️', dinner: '🌙', snack: '🍎' }
 
 export default function NutritionPage() {
+  const { label: calLabel } = useCalorieUnit()
   const [loading, setLoading] = useState(false)
   const [plan, setPlan] = useState<MealPlan | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -82,7 +84,7 @@ export default function NutritionPage() {
               <p className="text-sm font-semibold text-gray-700 mb-3">Daily Targets</p>
               <div className="grid grid-cols-4 gap-2 text-center">
                 {[
-                  { label: 'Calories', value: plan.targetCalories, unit: 'kcal', color: 'blue' },
+                  { label: 'Calories', value: plan.targetCalories, unit: calLabel, color: 'blue' },
                   { label: 'Protein', value: plan.targetProtein, unit: 'g', color: 'red' },
                   { label: 'Carbs', value: plan.targetCarbs, unit: 'g', color: 'yellow' },
                   { label: 'Fat', value: plan.targetFat, unit: 'g', color: 'green' },
@@ -111,7 +113,7 @@ export default function NutritionPage() {
               <div className="space-y-3">
                 <div className="bg-gray-100 rounded-xl px-4 py-2 flex items-center justify-between text-xs text-gray-600">
                   <span className="font-semibold">{plan.days[activeDay].day}</span>
-                  <span>{plan.days[activeDay].dailyCalories} kcal · P {plan.days[activeDay].dailyProtein}g · C {plan.days[activeDay].dailyCarbs}g · F {plan.days[activeDay].dailyFat}g</span>
+                  <span>{plan.days[activeDay].dailyCalories} {calLabel} · P {plan.days[activeDay].dailyProtein}g · C {plan.days[activeDay].dailyCarbs}g · F {plan.days[activeDay].dailyFat}g</span>
                 </div>
                 {plan.days[activeDay].meals.map((meal, i) => (
                   <div key={i} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
@@ -125,7 +127,7 @@ export default function NutritionPage() {
                     <p className="text-xs text-gray-500 mb-3">{meal.description}</p>
                     <div className="flex gap-2">
                       {[
-                        { l: `${meal.calories} kcal`, c: 'bg-blue-50 text-blue-700' },
+                        { l: `${meal.calories} ${calLabel}`, c: 'bg-blue-50 text-blue-700' },
                         { l: `${meal.protein}g protein`, c: 'bg-red-50 text-red-700' },
                         { l: `${meal.carbs}g carbs`, c: 'bg-yellow-50 text-yellow-700' },
                         { l: `${meal.fat}g fat`, c: 'bg-green-50 text-green-700' },

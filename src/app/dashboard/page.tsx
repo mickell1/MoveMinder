@@ -5,6 +5,7 @@ import { createClient } from '@/src/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AppHeader } from '@/src/components/AppHeader'
+import { useCalorieUnit } from '@/src/lib/hooks/useCalorieUnit'
 
 type Profile = {
   full_name: string | null
@@ -260,6 +261,7 @@ export default function DashboardPage() {
     </div>
   )
 
+  const { label: calLabel } = useCalorieUnit()
   const name = profile?.full_name?.split(' ')[0] ?? 'Your'
 
   return (
@@ -382,7 +384,7 @@ export default function DashboardPage() {
             </div>
             <div className="flex items-end gap-1.5 mb-2">
               <span className="text-2xl font-bold text-gray-900">{caloriesToday}</span>
-              <span className="text-sm text-gray-400 pb-0.5">/ {calorieTarget} kcal</span>
+              <span className="text-sm text-gray-400 pb-0.5">/ {calorieTarget} {calLabel}</span>
             </div>
             <div className="w-full bg-gray-100 rounded-full h-1.5 mb-3 overflow-hidden">
               <div

@@ -5,6 +5,7 @@ import { createClient } from '@/src/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { AppHeader } from '@/src/components/AppHeader'
+import { useCalorieUnit } from '@/src/lib/hooks/useCalorieUnit'
 
 type MealType = 'breakfast' | 'lunch' | 'dinner' | 'snack'
 
@@ -51,6 +52,7 @@ export default function FoodLogPage() {
   const router = useRouter()
   const supabase = createClient()
 
+  const { label: calLabel, unit: calUnit, setUnit: setCalUnit } = useCalorieUnit()
   const todayStr = new Date().toLocaleDateString('en-CA')
   const [date, setDate] = useState(todayStr)
   const [logs, setLogs] = useState<FoodLog[]>([])
@@ -190,9 +192,21 @@ export default function FoodLogPage() {
 
       <main className="max-w-xl mx-auto px-4 py-6 space-y-4 pb-10">
 
-        {/* Header + date nav */}
+        {/* Header + date nav + unit toggle */}
         <div className="flex items-center justify-between">
-          <h1 className="text-2xl font-bold text-gray-900">Food Log</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">Food Log</h1>
+            <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs font-semibold">
+              <button
+                onClick={() => setCalUnit('kcal')}
+                className={`px-2.5 py-1 transition-colors ${calUnit === 'kcal' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+              >kcal</button>
+              <button
+                onClick={() => setCalUnit('cal')}
+                className={`px-2.5 py-1 transition-colors ${calUnit === 'cal' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}
+              >Cal</button>
+            </div>
+          </div>
           <div className="flex items-center gap-2">
             <button onClick={() => navDate(-1)}
               className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center text-gray-600 hover:bg-gray-50 text-lg leading-none">
@@ -213,7 +227,7 @@ export default function FoodLogPage() {
               <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Calories</p>
               <div className="flex items-end gap-1.5">
                 <span className="text-3xl font-bold text-gray-900">{totalCalories}</span>
-                <span className="text-sm text-gray-400 pb-0.5">/ {calorieTarget} kcal</span>
+                <span className="text-sm text-gray-400 pb-0.5">/ {calorieTarget} {calLabel}</span>
               </div>
             </div>
             <div className="text-right">
@@ -261,7 +275,7 @@ export default function FoodLogPage() {
                   <span className="text-xl">{meal.icon}</span>
                   <span className="font-semibold text-gray-900">{meal.label}</span>
                   {mealCals > 0 && (
-                    <span className="text-xs text-gray-400 font-medium">{mealCals} kcal</span>
+                    <span className="text-xs text-gray-400 font-medium">{mealCals} {calLabel}</span>
                   )}
                 </div>
                 <button onClick={() => openPanel(meal.type)}
@@ -282,7 +296,7 @@ export default function FoodLogPage() {
                         <p className="text-xs text-gray-400">
                           {[
                             log.serving_size,
-                            log.calories != null && `${log.calories} kcal`,
+                            log.calories != null && `${log.calories} ${calLabel}`,
                           ].filter(Boolean).join(' · ')}
                         </p>
                       </div>
