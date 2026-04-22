@@ -98,6 +98,8 @@ export default function DashboardPage() {
   const [macrosToday, setMacrosToday] = useState({ protein: 0, carbs: 0, fat: 0 })
   const [calorieTarget, setCalorieTarget] = useState(2000)
 
+  const { label: calLabel } = useCalorieUnit()
+
   const today = new Date().toLocaleDateString('en-CA')
   const currentHour = new Date().getHours()
   const isMorningWindow = currentHour >= 5 && currentHour < 12
@@ -261,7 +263,6 @@ export default function DashboardPage() {
     </div>
   )
 
-  const { label: calLabel } = useCalorieUnit()
   const name = profile?.full_name?.split(' ')[0] ?? 'Your'
 
   return (

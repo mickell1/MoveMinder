@@ -48,7 +48,7 @@ export default function ProfilePage() {
   const supabase = createClient()
 
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [stats, setStats] = useState({ totalWorkouts: 0, streak: 0, pbCount: 0, currentWeight: null as number | null })
+  const [stats, setStats] = useState({ totalWorkouts: 0, streak: 0, pbCount: 0, currentWeight: null as number | null, badgeCount: 0 })
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [nameInput, setNameInput] = useState('')
@@ -61,12 +61,13 @@ export default function ProfilePage() {
       if (!user) { router.push('/login'); return }
       setUserId(user.id)
 
-      const [profileRes, sessionsRes, weighInsRes, pbRes] = await Promise.all([
+      const [profileRes, sessionsRes, weighInsRes, pbRes, badgesRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).single(),
         supabase.from('workout_sessions').select('completed_at').eq('user_id', user.id),
         supabase.from('weigh_ins').select('weight_kg, logged_date').eq('user_id', user.id)
           .order('logged_date', { ascending: false }).limit(1),
         supabase.from('personal_bests').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
+        supabase.from('user_badges').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
       ])
 
       const p = profileRes.data as Profile | null
@@ -78,8 +79,9 @@ export default function ProfilePage() {
       const streak = calcWorkoutStreak(sessionDates)
       const currentWeight = (weighInsRes.data?.[0]?.weight_kg as number | undefined) ?? null
       const pbCount = (pbRes.count ?? 0) as number
+      const badgeCount = (badgesRes.count ?? 0) as number
 
-      setStats({ totalWorkouts: sessions.length, streak, pbCount, currentWeight })
+      setStats({ totalWorkouts: sessions.length, streak, pbCount, currentWeight, badgeCount })
       setLoading(false)
     }
     load()
