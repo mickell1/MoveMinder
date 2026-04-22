@@ -93,6 +93,9 @@ export default function DashboardPage() {
   const [pendingRequests, setPendingRequests] = useState<{ friendshipId: string; name: string | null }[]>([])
   const [feedPreview, setFeedPreview] = useState<FeedItem[]>([])
   const [workedOutToday, setWorkedOutToday] = useState(false)
+  const [caloriesToday, setCaloriesToday] = useState(0)
+  const [macrosToday, setMacrosToday] = useState({ protein: 0, carbs: 0, fat: 0 })
+  const [calorieTarget, setCalorieTarget] = useState(2000)
 
   const today = new Date().toLocaleDateString('en-CA')
   const currentHour = new Date().getHours()
@@ -105,7 +108,7 @@ export default function DashboardPage() {
       if (!user) { router.push('/login'); return }
       setUserId(user.id)
 
-      const [profileRes, sessionsRes, allSessionsRes, weighInsRes, pendingRes] = await Promise.all([
+      const [profileRes, sessionsRes, allSessionsRes, weighInsRes, pendingRes, foodRes] = await Promise.all([
         supabase.from('profiles').select('*').eq('id', user.id).single(),
         supabase.from('workout_sessions')
           .select('id, workout_id, completed_at, duration_minutes, workouts(name)')
@@ -116,6 +119,7 @@ export default function DashboardPage() {
           .gte('logged_date', (() => { const d = new Date(); d.setDate(d.getDate() - 60); return d.toLocaleDateString('en-CA') })())
           .order('logged_date', { ascending: false }),
         supabase.from('friendships').select('id, user_id').eq('friend_id', user.id).eq('status', 'pending'),
+        supabase.from('food_logs').select('calories, protein_g, carbs_g, fat_g').eq('user_id', user.id).eq('logged_date', today),
       ])
 
       setProfile(profileRes.data ?? null)
@@ -139,6 +143,31 @@ export default function DashboardPage() {
       setWeighInStreak(calcWeighInStreak(wi.map(w => w.logged_date)))
       setTodayWeighIn(wi.some(w => w.logged_date === today))
       setRecentWeighIns(wi.slice(0, 14))
+
+      // Calorie target from profile (TDEE or override)
+      const p = profileRes.data
+      const wKg = wi[0]?.weight_kg ?? null
+      let target = 2000
+      if (p?.calorie_target) {
+        target = p.calorie_target
+      } else if (p?.height_cm && p?.age && p?.sex && wKg) {
+        const bmr = p.sex === 'female'
+          ? 10 * wKg + 6.25 * p.height_cm - 5 * p.age - 161
+          : 10 * wKg + 6.25 * p.height_cm - 5 * p.age + 5
+        const mult: Record<string, number> = { sedentary: 1.2, light: 1.375, moderate: 1.55, active: 1.725, very_active: 1.9 }
+        target = Math.round(bmr * (mult[p.activity_level ?? 'moderate'] ?? 1.55))
+      }
+      setCalorieTarget(target)
+
+      // Today's food intake
+      type FoodRow = { calories: number | null; protein_g: number | null; carbs_g: number | null; fat_g: number | null }
+      const food = (foodRes.data ?? []) as FoodRow[]
+      setCaloriesToday(food.reduce((s, f) => s + (f.calories ?? 0), 0))
+      setMacrosToday({
+        protein: Math.round(food.reduce((s, f) => s + (f.protein_g ?? 0), 0)),
+        carbs:   Math.round(food.reduce((s, f) => s + (f.carbs_g ?? 0), 0)),
+        fat:     Math.round(food.reduce((s, f) => s + (f.fat_g ?? 0), 0)),
+      })
 
       // Pending friend requests
       const pending = pendingRes.data ?? []
@@ -343,6 +372,36 @@ export default function DashboardPage() {
                 </p>
               </div>
             ))}
+          </div>
+
+          {/* Calories today */}
+          <div className="bg-white rounded-xl p-4 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-semibold text-gray-700">Calories Today</p>
+              <Link href="/food" className="text-xs text-blue-600 font-medium">Log food →</Link>
+            </div>
+            <div className="flex items-end gap-1.5 mb-2">
+              <span className="text-2xl font-bold text-gray-900">{caloriesToday}</span>
+              <span className="text-sm text-gray-400 pb-0.5">/ {calorieTarget} kcal</span>
+            </div>
+            <div className="w-full bg-gray-100 rounded-full h-1.5 mb-3 overflow-hidden">
+              <div
+                className={`h-1.5 rounded-full transition-all ${caloriesToday > calorieTarget ? 'bg-red-400' : caloriesToday > calorieTarget * 0.9 ? 'bg-amber-400' : 'bg-green-500'}`}
+                style={{ width: `${Math.min(100, (caloriesToday / calorieTarget) * 100)}%` }}
+              />
+            </div>
+            {caloriesToday > 0 ? (
+              <div className="flex justify-between text-xs text-gray-500">
+                <span>P <span className="font-semibold text-red-600">{macrosToday.protein}g</span></span>
+                <span>C <span className="font-semibold text-yellow-600">{macrosToday.carbs}g</span></span>
+                <span>F <span className="font-semibold text-green-600">{macrosToday.fat}g</span></span>
+                <span className={`font-semibold ${calorieTarget - caloriesToday < 0 ? 'text-red-500' : 'text-gray-600'}`}>
+                  {calorieTarget - caloriesToday > 0 ? `${calorieTarget - caloriesToday} left` : `${Math.abs(calorieTarget - caloriesToday)} over`}
+                </span>
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">Nothing logged yet — <Link href="/food" className="text-blue-500">add food</Link></p>
+            )}
           </div>
 
           {/* Weight trend + Feed preview */}

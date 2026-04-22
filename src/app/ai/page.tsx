@@ -86,6 +86,21 @@ export default function AICoachPage() {
             </div>
           </Link>
 
+          <Link href="/food"
+            className="block bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-shadow active:scale-[0.99]">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 bg-orange-100 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0">🍽️</div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <h2 className="font-bold text-gray-900">Food Log & AI Lookup</h2>
+                  <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full font-medium">New</span>
+                </div>
+                <p className="text-sm text-gray-500">Log meals, track macros, and ask Claude anything — &quot;What are the macros in 150g chicken rice?&quot;</p>
+                <p className="text-xs text-orange-600 font-semibold mt-2">Open food log →</p>
+              </div>
+            </div>
+          </Link>
+
           <Link href="/ai/profile"
             className="block bg-white rounded-2xl border border-gray-100 shadow-sm p-5 hover:shadow-md transition-shadow active:scale-[0.99]">
             <div className="flex items-start gap-4">
