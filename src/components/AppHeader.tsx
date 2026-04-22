@@ -18,6 +18,7 @@ interface Props {
 
 const GLOBAL_NAV: NavLink[] = [
   { href: '/feed',                 label: 'Social' },
+  { href: '/friends',              label: 'Friends' },
   { href: '/dashboard/workouts',   label: 'Workouts' },
   { href: '/weigh-in',             label: 'Weigh-In' },
   { href: '/ai',                   label: 'AI Coach' },

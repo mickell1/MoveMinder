@@ -204,6 +204,8 @@ export default function ProfilePage() {
         {/* Quick links */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm divide-y divide-gray-100">
           {[
+            { href: '/friends', icon: '🔗', label: 'Friends & Invites', sub: 'Invite friends, manage connections' },
+            { href: '/badges', icon: '🏅', label: 'Achievements', sub: `${stats.badgeCount} badge${stats.badgeCount !== 1 ? 's' : ''} earned` },
             { href: '/progress/pbs', icon: '🏆', label: 'Personal Bests', sub: `${stats.pbCount} all-time records` },
             { href: '/dashboard/history', icon: '📋', label: 'Workout History', sub: `${stats.totalWorkouts} sessions logged` },
             { href: '/progress', icon: '📈', label: 'Progress Stats', sub: 'Streaks and weight trend' },
