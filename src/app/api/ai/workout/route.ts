@@ -137,21 +137,36 @@ ${type === 'single' ? `{
           ? ex.muscle_group
           : inferMuscleGroup(ex.name, focus)
 
-        // Find existing exercise in catalog first
-        let { data: found } = await supabase.from('exercises').select('id').ilike('name', ex.name).limit(1).single()
+        // Find existing exercise in catalog
+        let { data: found } = await supabase
+          .from('exercises').select('id').ilike('name', ex.name).limit(1).maybeSingle()
+
         if (!found) {
+          // Try to create — include all required catalog fields
+          const difficulty = ctx.fitnessLevel ?? 'beginner'
           const { data: created, error: exErr } = await supabase
             .from('exercises')
-            .insert({ name: ex.name, description: ex.notes ?? null, muscle_group: muscleGroup })
-            .select('id').single()
-          if (exErr) console.error('exercise insert error:', exErr)
-          found = created
+            .insert({ name: ex.name, description: ex.notes ?? null, muscle_group: muscleGroup, equipment: 'various', difficulty })
+            .select('id').maybeSingle()
+          if (exErr) {
+            // Insert may have failed due to unique constraint race — retry exact find
+            const { data: retry } = await supabase
+              .from('exercises').select('id').eq('name', ex.name).maybeSingle()
+            found = retry
+          } else {
+            found = created
+          }
         }
-        if (!found) continue
+
+        if (!found) {
+          console.error('Could not find or create exercise:', ex.name)
+          continue
+        }
 
         const { error: weErr } = await supabase.from('workout_exercises').insert({
           workout_id: workout.id,
           exercise_id: found.id,
+          name: ex.name,           // store name directly — workout page uses this as primary source
           sets: ex.sets,
           reps: ex.reps,
           rest_seconds: ex.rest_seconds,

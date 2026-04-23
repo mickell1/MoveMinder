@@ -94,10 +94,10 @@ export default function WorkoutPage() {
         ;(exData as ExRow[] | null)?.forEach(e => exerciseMap.set(e.id, e))
       }
 
-      type WERow = { id: string; exercise_id: string; sets: number; reps: number; rest_seconds: number; order_index: number }
+      type WERow = { id: string; exercise_id: string; name: string | null; sets: number; reps: number; rest_seconds: number; order_index: number }
       const flat: Exercise[] = (weRows as WERow[]).map(r => {
         const ex = exerciseMap.get(r.exercise_id)
-        return { id: r.id, exercise_id: r.exercise_id, name: ex?.name ?? 'Unknown', sets: r.sets, reps: r.reps, rest_seconds: r.rest_seconds, order_index: r.order_index, video_url: ex?.video_url ?? null, muscle_group: ex?.muscle_group ?? null }
+        return { id: r.id, exercise_id: r.exercise_id, name: r.name ?? ex?.name ?? 'Unknown', sets: r.sets, reps: r.reps, rest_seconds: r.rest_seconds, order_index: r.order_index, video_url: ex?.video_url ?? null, muscle_group: ex?.muscle_group ?? null }
       })
       setExercises(flat)
 
